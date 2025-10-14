@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,41 +12,36 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Key } from "lucide-react";
+import { Key, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 export function UserTokenDialog() {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
-  const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [shouldFetch, setShouldFetch] = useState(false);
 
-  const handleCheck = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api.getTokenStats(token);
-      
-      // Format last used
-      const lastUsedStr = data.lastUsed
-        ? new Date(data.lastUsed).toLocaleString()
-        : "Never";
+  const { data: rawData, isLoading, error: queryError } = useQuery({
+    queryKey: ["/api/token/stats", token],
+    queryFn: () => api.getTokenStats(token),
+    enabled: shouldFetch && token.length > 0,
+    refetchInterval: shouldFetch ? 3000 : false,
+    retry: false,
+  });
 
-      setStats({
-        lastUsed: lastUsedStr,
-        requestsToday: data.requestsToday,
-        maxRPD: data.maxRPD,
-        remainingRPD: data.remainingRPD,
-        models: data.modelUsage,
-      });
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch token stats");
-      setStats(null);
-    } finally {
-      setLoading(false);
-    }
+  const stats = rawData ? {
+    lastUsed: rawData.lastUsed ? new Date(rawData.lastUsed).toLocaleString() : "Never",
+    requestsToday: rawData.requestsToday,
+    maxRPD: rawData.maxRPD,
+    remainingRPD: rawData.remainingRPD,
+    models: rawData.modelUsage,
+  } : null;
+
+  const error = queryError ? (queryError as any).message || "Failed to fetch token stats" : "";
+  const loading = isLoading;
+
+  const handleCheck = () => {
+    setShouldFetch(true);
   };
 
   return (
@@ -92,6 +88,13 @@ export function UserTokenDialog() {
               {loading ? "Checking..." : "Check Stats"}
             </Button>
           ) : (
+            <>
+              <div className="flex items-center justify-between pb-2">
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  Auto-refreshing every 3 seconds
+                </p>
+              </div>
             <div className="space-y-4 pt-4">
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Last Used</div>
@@ -143,6 +146,7 @@ export function UserTokenDialog() {
                 </div>
               )}
             </div>
+            </>
           )}
         </div>
       </DialogContent>
