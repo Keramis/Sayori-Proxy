@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
@@ -15,8 +17,14 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
   const [tokenName, setTokenName] = useState("");
   const [maxRPD, setMaxRPD] = useState("");
   const [maxRPM, setMaxRPM] = useState("");
+  const [allowedProviders, setAllowedProviders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+
+  const { data: providers = [] } = useQuery({
+    queryKey: ["/api/admin/providers"],
+    queryFn: () => api.getProviders(authToken),
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +35,7 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
         name: tokenName,
         maxRPD: parseInt(maxRPD),
         maxRPM: parseInt(maxRPM),
+        allowedProviders: allowedProviders.length > 0 ? allowedProviders : undefined,
       });
 
       toast({
@@ -49,6 +58,7 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
       setTokenName("");
       setMaxRPD("");
       setMaxRPM("");
+      setAllowedProviders([]);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -103,6 +113,40 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
               min="1"
             />
           </div>
+        </div>
+
+        <div className="space-y-3">
+          <Label>Allowed Providers (optional)</Label>
+          <p className="text-sm text-muted-foreground">
+            Leave empty to allow all providers. Select specific providers to restrict access.
+          </p>
+          {providers.length > 0 ? (
+            <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
+              {providers.map((provider: any) => (
+                <div key={provider.id} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`provider-${provider.id}`}
+                    checked={allowedProviders.includes(provider.id)}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setAllowedProviders([...allowedProviders, provider.id]);
+                      } else {
+                        setAllowedProviders(allowedProviders.filter(id => id !== provider.id));
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor={`provider-${provider.id}`}
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                  >
+                    {provider.name}
+                  </label>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No providers available</p>
+          )}
         </div>
 
         <Button

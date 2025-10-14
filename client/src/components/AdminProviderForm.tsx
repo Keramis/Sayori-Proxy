@@ -24,6 +24,8 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [disableCacheDiscount, setDisableCacheDiscount] = useState(false);
+  const [customHeadersJson, setCustomHeadersJson] = useState("");
   const [providerId, setProviderId] = useState<string | null>(null);
   const [apiKeys, setApiKeys] = useState<string[]>([""]);
   const [apiKeyIds, setApiKeyIds] = useState<string[]>([]);
@@ -36,6 +38,8 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
       setName(editProvider.name);
       setBaseUrl(editProvider.baseUrl);
       setEnabled(editProvider.enabled);
+      setDisableCacheDiscount(editProvider.disableCacheDiscount || false);
+      setCustomHeadersJson(editProvider.customHeaders ? JSON.stringify(editProvider.customHeaders, null, 2) : "");
       setProviderId(editProvider.id);
       loadProviderKeys(editProvider.id);
     }
@@ -128,18 +132,38 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
     setLoading(true);
 
     try {
+      let customHeaders: Record<string, string> | undefined;
+      
+      if (customHeadersJson.trim()) {
+        try {
+          customHeaders = JSON.parse(customHeadersJson);
+        } catch (e) {
+          toast({
+            title: "Invalid JSON",
+            description: "Custom headers must be valid JSON format",
+            variant: "destructive",
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
       let provider;
       if (editProvider) {
         provider = await api.updateProvider(authToken, editProvider.id, {
           name,
           baseUrl,
           enabled,
+          customHeaders,
+          disableCacheDiscount,
         });
       } else {
         provider = await api.createProvider(authToken, {
           name,
           baseUrl,
           enabled,
+          customHeaders,
+          disableCacheDiscount,
         });
       }
 
@@ -164,6 +188,8 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
         setName("");
         setBaseUrl("");
         setEnabled(true);
+        setDisableCacheDiscount(false);
+        setCustomHeadersJson("");
         setApiKeys([""]);
         setApiKeyIds([]);
         setModelCount(null);
@@ -211,6 +237,35 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
         <div className="flex items-center space-x-2">
           <Label htmlFor="enabled">Enabled</Label>
           <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} />
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="disable-cache-discount">Disable Cache Discount</Label>
+          <Switch 
+            id="disable-cache-discount" 
+            checked={disableCacheDiscount} 
+            onCheckedChange={setDisableCacheDiscount} 
+          />
+        </div>
+        {disableCacheDiscount && (
+          <p className="text-sm text-muted-foreground -mt-4">
+            Cached requests will NOT receive a 90% cost discount for this provider
+          </p>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="custom-headers">Custom Headers (JSON)</Label>
+          <p className="text-sm text-muted-foreground">
+            Add custom request headers as JSON. Example: {`{"X-Custom-Header": "value"}`}
+          </p>
+          <textarea
+            id="custom-headers"
+            placeholder={`{\n  "X-Custom-Header": "value",\n  "X-Another-Header": "value"\n}`}
+            value={customHeadersJson}
+            onChange={(e) => setCustomHeadersJson(e.target.value)}
+            className="w-full min-h-[100px] font-mono text-sm p-2 border rounded-md bg-background"
+            data-testid="input-custom-headers"
+          />
         </div>
 
         <div className="space-y-2">
