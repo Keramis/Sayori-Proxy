@@ -523,6 +523,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Provider is disabled" });
       }
 
+      // Check provider access control
+      if (userToken.allowedProviders && userToken.allowedProviders.length > 0) {
+        if (!userToken.allowedProviders.includes(provider.id)) {
+          return res.status(403).json({ 
+            error: `You don't have access to ${targetModel.modelId} from ${provider.name}` 
+          });
+        }
+      }
+
       // Calculate request cost and check quota availability
       const messagesPayload = JSON.stringify(requestBody.messages || []);
       const cacheKey = `${userToken.id}:${messagesPayload}`;
