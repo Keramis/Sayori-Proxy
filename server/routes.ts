@@ -552,7 +552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const originalCost = targetModel.requestCost || 1;
       let requestCost = originalCost;
-      if (isCachedRequest) {
+      if (isCachedRequest && !provider.disableCacheDiscount) {
         requestCost = Math.round((originalCost / 10) * 100) / 100;
       }
 
@@ -579,7 +579,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Update cache and log
       if (isCachedRequest) {
-        console.log(`[CACHE HIT] Message Body Payload is the same as cached. Applying x10^-1 deduction. Total: ${originalCost} : ${requestCost}`);
+        if (provider.disableCacheDiscount) {
+          console.log(`[CACHE HIT] Message Body Payload is the same as cached. Cache discount disabled for this provider. Total: ${originalCost} : ${requestCost}`);
+        } else {
+          console.log(`[CACHE HIT] Message Body Payload is the same as cached. Applying x10^-1 deduction. Total: ${originalCost} : ${requestCost}`);
+        }
       } else {
         payloadCache.set(cacheKey, { timestamp: now, payload: messagesPayload });
         console.log(`[NEW REQUEST] Caching new message payload for user ${userToken.id}`);
@@ -590,12 +594,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateApiKeyUsage(apiKey.id);
 
       // Proxy request to provider with all parameters (temperature, max_tokens, top_p, etc.)
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey.key}`,
+        ...(provider.customHeaders || {}),
+      };
+      
       const response = await fetch(`${provider.baseUrl}/chat/completions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey.key}`,
-        },
+        headers,
         body: JSON.stringify({ model: targetModel.modelId, ...requestBody }),
       });
 
