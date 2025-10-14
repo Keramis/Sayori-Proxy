@@ -7,12 +7,16 @@ export interface Provider {
   baseUrl: string;
   enabled: boolean;
   createdAt: number;
+  customHeaders?: Record<string, string>;
+  disableCacheDiscount?: boolean;
 }
 
 export const insertProviderSchema = z.object({
   name: z.string().min(1),
   baseUrl: z.string().url(),
   enabled: z.boolean().default(true),
+  customHeaders: z.record(z.string()).optional(),
+  disableCacheDiscount: z.boolean().default(false).optional(),
 });
 
 export type InsertProvider = z.infer<typeof insertProviderSchema>;
@@ -59,12 +63,14 @@ export interface UserToken {
   maxRPD: number;
   maxRPM: number;
   createdAt: number;
+  allowedProviders?: string[];
 }
 
 export const insertUserTokenSchema = z.object({
   name: z.string().min(1),
   maxRPD: z.number().int().positive(),
   maxRPM: z.number().int().positive(),
+  allowedProviders: z.array(z.string()).optional(),
 });
 
 export type InsertUserToken = z.infer<typeof insertUserTokenSchema>;
