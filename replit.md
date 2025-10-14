@@ -4,6 +4,17 @@
 
 Sayori Proxy is a modern API proxy management system with a pink and white themed dashboard. The application provides a centralized platform for managing multiple AI provider connections, API keys, models, and user access tokens. It features a real-time statistics dashboard, admin controls for provider/model management, and flexible authentication options including user token-based access control with rate limiting.
 
+## Recent Changes (October 14, 2025)
+
+**New Features:**
+1. **Provider-Specific Access Control** - Admin can now restrict which providers a user token can access. When access is denied, requests are rejected without deducting quota from the user's limit.
+
+2. **Custom Request Headers** - Admin can configure custom headers per provider using JSON format (e.g., `{"X-Custom-Header": "value"}`). These headers are automatically included in all proxy requests to that provider.
+
+3. **Cache Discount Toggle** - Admin can disable the 90% cache discount per provider. When disabled, cached requests will not receive the automatic cost reduction, providing more control over quota management.
+
+4. **Auto-Refresh Stats** - User token stats now automatically refresh every 3 seconds when viewing the stats dialog, providing real-time usage information without manual refresh.
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -59,6 +70,10 @@ Preferred communication style: Simple, everyday language.
 - Usage tracking per user token and model
 - Real-time statistics aggregation (tokens, requests, success rate, uptime)
 - Provider health checking and model discovery
+- Provider-specific access control with quota protection (errors don't deduct quota)
+- Custom header injection per provider
+- Configurable cache discount toggle per provider
+- Auto-refreshing token statistics (3-second interval)
 
 ### Data Storage Solutions
 
@@ -68,10 +83,10 @@ Preferred communication style: Simple, everyday language.
 - Schema validation using Zod
 
 **Database Schema (designed for PostgreSQL migration):**
-- **Providers:** id, name, baseUrl, enabled, createdAt
+- **Providers:** id, name, baseUrl, enabled, createdAt, customHeaders (optional), disableCacheDiscount (optional)
 - **ApiKeys:** id, providerId, key, lastUsed, requestCount
 - **Models:** id, providerId, modelId, enabled
-- **UserTokens:** id, name, token, maxRPD, maxRPM, createdAt
+- **UserTokens:** id, name, token, maxRPD, maxRPM, createdAt, allowedProviders (optional)
 - **UsageRecords:** id, userTokenId, modelId, tokensUsed, timestamp
 - **AdminCredentials:** username, password
 - **Settings:** authMode, generalPassword
