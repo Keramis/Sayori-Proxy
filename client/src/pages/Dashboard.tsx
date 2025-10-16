@@ -168,7 +168,7 @@ export default function Dashboard() {
       <main className="container mx-auto px-6 py-8">
         {/* Hero Section */}
         <div className="text-center mb-12">
-          <h1 className="font-script text-6xl text-primary mb-4">Nova Router</h1>
+          <h1 className="font-script text-6xl text-primary mb-4">Sayori Proxy</h1>
           <p className="text-muted-foreground text-lg mb-6">
             Router that will never leave you hanging.
           </p>
