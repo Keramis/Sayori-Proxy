@@ -82,6 +82,8 @@ export interface UsageRecord {
   modelId: string;
   providerId: string;
   tokens: number;
+  inputTokens: number;
+  outputTokens: number;
   timestamp: number;
   cost: number;
 }
@@ -90,7 +92,9 @@ export const insertUsageRecordSchema = z.object({
   userTokenId: z.string(),
   modelId: z.string(),
   providerId: z.string(),
-  tokens: z.number().int().positive(),
+  tokens: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
   cost: z.number().positive().optional(),
 });
 

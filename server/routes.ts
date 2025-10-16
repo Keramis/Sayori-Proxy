@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import { randomUUID } from "crypto";
 import cors from "cors";
 import { storage } from "./storage";
 import {
@@ -302,11 +303,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`Fetching models from: ${modelsUrl}`);
 
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${apiKey.key}`,
+        ...(provider.customHeaders || {}),
+      };
+
+      console.log("[MODEL CHECK] Request Headers:", headers);
+
       // Fetch models from provider
       const response = await fetch(modelsUrl, {
-        headers: {
-          Authorization: `Bearer ${apiKey.key}`,
-        },
+        headers,
       });
 
       if (!response.ok) {
@@ -436,6 +442,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/admin/tokens/:id", adminAuth, async (req, res) => {
+    try {
+      const token = await storage.updateUserToken(req.params.id, req.body);
+      if (!token) {
+        return res.status(404).json({ error: "Token not found" });
+      }
+      res.json(token);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.delete("/api/admin/tokens/:id", adminAuth, async (req, res) => {
     const success = await storage.deleteUserToken(req.params.id);
     res.json({ success });
@@ -472,12 +490,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const payloadCache = new Map<string, { timestamp: number; payload: string }>();
   const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache TTL
 
+  // Helper function to estimate tokens from text (roughly 4 chars per token)
+  function estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  // Helper function to count input tokens from messages
+  function countInputTokens(messages: any[]): number {
+    if (!Array.isArray(messages)) return 0;
+    const messageText = JSON.stringify(messages);
+    return estimateTokens(messageText);
+  }
+
   // Chat completions proxy
   app.post("/v1/chat/completions", flexibleAuth, async (req, res) => {
     try {
       const userToken = (req as any).userToken;
       const { model, temperature, max_tokens, top_p, ...otherParams } = req.body;
       const requestBody = { temperature, max_tokens, top_p, ...otherParams };
+
+      // Generate unique request ID
+      const requestId = randomUUID().split('-')[0];
+      const inputTokens = countInputTokens(requestBody.messages || []);
 
       // Validate model parameter
       if (!model || typeof model !== 'string') {
@@ -526,11 +560,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check provider access control
       if (userToken.allowedProviders && userToken.allowedProviders.length > 0) {
         if (!userToken.allowedProviders.includes(provider.id)) {
-          return res.status(403).json({ 
-            error: `You don't have access to ${targetModel.modelId} from ${provider.name}` 
+          return res.status(403).json({
+            error: `You don't have access to ${targetModel.modelId} from ${provider.name}`
           });
         }
       }
+
+      // Log incoming request
+      console.log(`[${requestId}] Request incoming from ${userToken.name}. In: ${inputTokens} tokens.`);
 
       // Calculate request cost and check quota availability
       const messagesPayload = JSON.stringify(requestBody.messages || []);
@@ -600,6 +637,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(provider.customHeaders || {}),
       };
       
+      console.log("[PROXY] Request Headers:", headers);
+
       const response = await fetch(`${provider.baseUrl}/chat/completions`, {
         method: "POST",
         headers,
@@ -657,6 +696,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (streamError: any) {
           console.error('Streaming error:', streamError);
         } finally {
+          // Calculate output tokens
+          const outputTokens = totalTokens > inputTokens ? totalTokens - inputTokens : 0;
+
           // Track usage for streaming with pre-calculated cost
           // Create a single usage record with the actual cost (including fractional)
           await storage.createUsageRecord({
@@ -664,8 +706,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             modelId: targetModel.modelId,
             providerId: provider.id,
             tokens: totalTokens,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
             cost: requestCost,
           });
+
+          // Log completed request
+          console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${totalTokens} tokens.`);
 
           await storage.decrementActiveRequests();
           res.end();
@@ -676,15 +723,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Track usage with pre-calculated cost
         const tokens = data.usage?.total_tokens || 0;
-        
+        const outputTokens = tokens > inputTokens ? tokens - inputTokens : 0;
+
         // Create a single usage record with the actual cost (including fractional)
         await storage.createUsageRecord({
           userTokenId: userToken.id,
           modelId: targetModel.modelId,
           providerId: provider.id,
           tokens,
+          inputTokens: inputTokens,
+          outputTokens: outputTokens,
           cost: requestCost,
         });
+
+        // Log completed request
+        console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${tokens} tokens.`);
 
         await storage.decrementActiveRequests();
 

@@ -11,8 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Shield } from "lucide-react";
 import { api } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Admin() {
+  const { toast } = useToast();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authToken, setAuthToken] = useState("");
   const [username, setUsername] = useState("");
@@ -24,13 +26,23 @@ export default function Admin() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    
+
     try {
       const result = await api.adminLogin(username, password);
       setAuthToken(result.token);
       setIsAuthenticated(true);
+      toast({
+        title: "Login Successful",
+        description: "Welcome to the admin dashboard!",
+      });
     } catch (err: any) {
-      setError("Wrong Username or Password");
+      const errorMessage = "Wrong Username or Password";
+      setError(errorMessage);
+      toast({
+        title: "Authentication Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

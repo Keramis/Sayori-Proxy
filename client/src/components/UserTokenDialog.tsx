@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,8 +15,10 @@ import { Progress } from "@/components/ui/progress";
 import { Key, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useToast } from "@/hooks/use-toast";
 
 export function UserTokenDialog() {
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
   const [shouldFetch, setShouldFetch] = useState(false);
@@ -39,6 +41,17 @@ export function UserTokenDialog() {
 
   const error = queryError ? (queryError as any).message || "Failed to fetch token stats" : "";
   const loading = isLoading;
+
+  // Show error toast when there's a query error
+  useEffect(() => {
+    if (queryError && shouldFetch) {
+      toast({
+        title: "Invalid Token",
+        description: "Token not found. Please check your user token and try again.",
+        variant: "destructive",
+      });
+    }
+  }, [queryError, shouldFetch, toast]);
 
   const handleCheck = () => {
     setShouldFetch(true);

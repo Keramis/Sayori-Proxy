@@ -57,22 +57,85 @@ export default function Dashboard() {
     navigator.clipboard.writeText(text);
   };
 
-  // WebSocket for real-time stats
+  // WebSocket for real-time stats with HTTP polling fallback
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/stats`);
+    let ws: WebSocket | null = null;
+    let pollInterval: NodeJS.Timeout | null = null;
+    let wsConnected = false;
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setStats(data);
+    // Try WebSocket first
+    const tryWebSocket = () => {
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(`${protocol}//${window.location.host}/ws/stats`);
+
+        ws.onopen = () => {
+          console.log("WebSocket connected");
+          wsConnected = true;
+        };
+
+        ws.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          setStats(data);
+        };
+
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error);
+        };
+
+        ws.onclose = () => {
+          console.log("WebSocket closed");
+          wsConnected = false;
+          // If WebSocket closes and wasn't connected, start polling
+          if (!wsConnected) {
+            console.log("Falling back to HTTP polling");
+            startPolling();
+          }
+        };
+      } catch (error) {
+        console.error("Failed to create WebSocket:", error);
+        startPolling();
+      }
     };
 
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
+    // HTTP polling fallback
+    const startPolling = () => {
+      if (pollInterval) return; // Already polling
+
+      const fetchStats = async () => {
+        try {
+          const response = await fetch("/api/stats");
+          const data = await response.json();
+          setStats(data);
+        } catch (error) {
+          console.error("Failed to fetch stats:", error);
+        }
+      };
+
+      // Fetch immediately
+      fetchStats();
+
+      // Then poll every second
+      pollInterval = setInterval(fetchStats, 1000);
     };
+
+    // Try WebSocket first, with fallback to polling after 2 seconds if no connection
+    tryWebSocket();
+    const fallbackTimer = setTimeout(() => {
+      if (!wsConnected) {
+        console.log("WebSocket connection timeout, switching to HTTP polling");
+        startPolling();
+      }
+    }, 2000);
 
     return () => {
-      ws.close();
+      clearTimeout(fallbackTimer);
+      if (ws) {
+        ws.close();
+      }
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
     };
   }, []);
 
@@ -105,7 +168,7 @@ export default function Dashboard() {
       <main className="container mx-auto px-6 py-8">
         {/* Hero Section */}
         <div className="text-center mb-12">
-          <h1 className="font-script text-6xl text-primary mb-4">Sayori Proxy</h1>
+          <h1 className="font-script text-6xl text-primary mb-4">Nova Router</h1>
           <p className="text-muted-foreground text-lg mb-6">
             Router that will never leave you hanging.
           </p>

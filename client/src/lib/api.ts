@@ -13,7 +13,13 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
-    }).then((res) => res.json()),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to fetch token stats");
+      }
+      return res.json();
+    }),
 
   // Admin login
   adminLogin: (username: string, password: string) =>
@@ -21,7 +27,13 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
-    }).then((res) => res.json()),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Login failed");
+      }
+      return res.json();
+    }),
 
   // Admin - Providers
   getProviders: (authToken: string) =>
@@ -148,6 +160,16 @@ export const api = {
   createUserToken: (authToken: string, data: any) =>
     fetch("/api/admin/tokens", {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authToken,
+      },
+      body: JSON.stringify(data),
+    }).then((res) => res.json()),
+
+  updateUserToken: (authToken: string, tokenId: string, data: any) =>
+    fetch(`/api/admin/tokens/${tokenId}`, {
+      method: "PATCH",
       headers: {
         "Content-Type": "application/json",
         Authorization: authToken,

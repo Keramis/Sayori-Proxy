@@ -14,7 +14,7 @@ export function Header() {
           className="flex items-center gap-2 bg-transparent border-none cursor-pointer p-0"
           data-testid="link-home"
         >
-          <h1 className="font-script text-3xl text-primary">Sayori Proxy</h1>
+          <h1 className="font-script text-3xl text-primary">Nova Router</h1>
         </button>
         
         <div className="flex items-center gap-3">

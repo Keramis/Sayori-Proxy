@@ -56,7 +56,27 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
     setApiKeyIds([...apiKeyIds, ""]); // Also add a placeholder for the new key's ID
   };
 
-  const removeApiKey = (index: number) => {
+  const removeApiKey = async (index: number) => {
+    const keyId = apiKeyIds[index];
+
+    if (keyId) {
+      try {
+        await api.deleteKey(authToken, keyId);
+        toast({
+          title: "API Key Deleted",
+          description: "API key has been deleted successfully.",
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+      } catch (error: any) {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to delete API key",
+          variant: "destructive",
+        });
+        return; // Prevent state update if API call fails
+      }
+    }
+
     const newKeys = apiKeys.filter((_, i) => i !== index);
     const newApiKeyIds = apiKeyIds.filter((_, i) => i !== index);
     setApiKeys(newKeys);
@@ -80,7 +100,7 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
     }
 
     try {
-      await api.updateProviderKey(authToken, keyId, newKey);
+      await api.updateApiKey(authToken, keyId, newKey);
       toast({
         title: "API Key Updated",
         description: "API key has been updated successfully.",
@@ -169,7 +189,36 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
 
       setProviderId(provider.id);
 
-      if (!editProvider) {
+      if (editProvider) {
+        // Logic to update, add, or remove keys for an existing provider
+        const existingKeys = await api.getProviderKeys(authToken, editProvider.id);
+        const existingKeyMap = new Map(existingKeys.map((k: any) => [k.id, k]));
+
+        // Keys to delete
+        const keysToDelete = existingKeys.filter((k: any) => !apiKeyIds.includes(k.id));
+        for (const key of keysToDelete) {
+          await api.deleteKey(authToken, key.id);
+        }
+
+        // Keys to add or update
+        for (let i = 0; i < apiKeys.length; i++) {
+          const key = apiKeys[i].trim();
+          const keyId = apiKeyIds[i];
+
+          if (key) {
+            if (keyId && existingKeyMap.has(keyId)) {
+              // Update existing key if it has changed
+              if (existingKeyMap.get(keyId).key !== key) {
+                await api.updateApiKey(authToken, keyId, key);
+              }
+            } else {
+              // Add new key
+              await api.addProviderKey(authToken, provider.id, key);
+            }
+          }
+        }
+      } else {
+        // Logic for a new provider
         for (const key of apiKeys.filter((k) => k.trim())) {
           await api.addProviderKey(authToken, provider.id, key);
         }
@@ -217,7 +266,6 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
             onChange={(e) => setName(e.target.value)}
             data-testid="input-provider-name"
             required
-            disabled={!!editProvider} // Disable name editing if in edit mode
           />
         </div>
 

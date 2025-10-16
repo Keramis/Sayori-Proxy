@@ -56,6 +56,7 @@ export interface IStorage {
   getUserToken(token: string): Promise<UserToken | undefined>;
   getUserTokenById(id: string): Promise<UserToken | undefined>;
   createUserToken(userToken: InsertUserToken): Promise<UserToken>;
+  updateUserToken(id: string, userToken: Partial<InsertUserToken>): Promise<UserToken | undefined>;
   deleteUserToken(id: string): Promise<boolean>;
 
   // Usage methods
@@ -132,6 +133,19 @@ export class JSONStorage implements IStorage {
           if (!db.generalPassword && process.env.GENERAL_PASSWORD) {
             db.generalPassword = process.env.GENERAL_PASSWORD;
           }
+          // Migrate existing usage records to include inputTokens and outputTokens
+          if (db.usageRecords && Array.isArray(db.usageRecords)) {
+            db.usageRecords = db.usageRecords.map((record: any) => {
+              if (record.inputTokens === undefined || record.outputTokens === undefined) {
+                return {
+                  ...record,
+                  inputTokens: record.inputTokens || 0,
+                  outputTokens: record.outputTokens || 0,
+                };
+              }
+              return record;
+            });
+          }
           return db;
         }
       }
@@ -149,11 +163,11 @@ export class JSONStorage implements IStorage {
       authMode: (process.env.AUTH_MODE as "user_tokens" | "general_password" | "no_auth") || "user_tokens",
       generalPassword: process.env.GENERAL_PASSWORD,
     };
-    
+
     // Save the default database to file
     this.db = defaultDb;
     this.saveDatabase();
-    
+
     return defaultDb;
   }
 
@@ -320,6 +334,15 @@ export class JSONStorage implements IStorage {
     return newToken;
   }
 
+  async updateUserToken(id: string, userToken: Partial<InsertUserToken>): Promise<UserToken | undefined> {
+    const index = this.db.userTokens.findIndex((t) => t.id === id);
+    if (index === -1) return undefined;
+
+    this.db.userTokens[index] = { ...this.db.userTokens[index], ...userToken };
+    this.saveDatabase();
+    return this.db.userTokens[index];
+  }
+
   async deleteUserToken(id: string): Promise<boolean> {
     const initialLength = this.db.userTokens.length;
     this.db.userTokens = this.db.userTokens.filter((t) => t.id !== id);
@@ -345,7 +368,8 @@ export class JSONStorage implements IStorage {
   }
 
   async getTodayUsageCount(userTokenId: string): Promise<number> {
-    const today = new Date().setHours(0, 0, 0, 0);
+    const now = new Date();
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const records = this.db.usageRecords.filter(
       (r) => r.userTokenId === userTokenId && r.timestamp >= today
     );

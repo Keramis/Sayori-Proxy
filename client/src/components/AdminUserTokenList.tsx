@@ -1,11 +1,21 @@
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Trash2, Copy } from "lucide-react";
+import { Trash2, Copy, Edit } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface AdminUserTokenListProps {
   authToken: string;
@@ -13,11 +23,63 @@ interface AdminUserTokenListProps {
 
 export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
   const { toast } = useToast();
+  const [editingToken, setEditingToken] = useState<any>(null);
+  const [editMaxRPD, setEditMaxRPD] = useState("");
+  const [editMaxRPM, setEditMaxRPM] = useState("");
+  const [editAllowedProviders, setEditAllowedProviders] = useState<string[]>([]);
+  const [editLoading, setEditLoading] = useState(false);
 
   const { data: tokens = [], isLoading } = useQuery({
     queryKey: ["/api/admin/tokens"],
     queryFn: () => api.getUserTokens(authToken),
   });
+
+  const { data: providers = [] } = useQuery({
+    queryKey: ["/api/admin/providers"],
+    queryFn: () => api.getProviders(authToken),
+  });
+
+  const openEditDialog = (token: any) => {
+    setEditingToken(token);
+    setEditMaxRPD(token.maxRPD.toString());
+    setEditMaxRPM(token.maxRPM.toString());
+    setEditAllowedProviders(token.allowedProviders || []);
+  };
+
+  const closeEditDialog = () => {
+    setEditingToken(null);
+    setEditMaxRPD("");
+    setEditMaxRPM("");
+    setEditAllowedProviders([]);
+  };
+
+  const handleUpdateToken = async () => {
+    if (!editingToken) return;
+
+    setEditLoading(true);
+    try {
+      await api.updateUserToken(authToken, editingToken.id, {
+        maxRPD: parseInt(editMaxRPD),
+        maxRPM: parseInt(editMaxRPM),
+        allowedProviders: editAllowedProviders,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tokens"] });
+      toast({
+        title: "Token Updated",
+        description: "Token settings have been updated successfully",
+      });
+      closeEditDialog();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update token",
+        variant: "destructive",
+      });
+    } finally {
+      setEditLoading(false);
+    }
+  };
 
   const copyToken = (token: string) => {
     navigator.clipboard.writeText(token);
@@ -85,15 +147,24 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
                 </div>
               </div>
 
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => deleteToken(token.id)}
-                data-testid={`button-delete-token-${token.id}`}
-                className="self-start sm:self-auto flex-shrink-0"
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
+              <div className="flex gap-2 self-start sm:self-auto flex-shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => openEditDialog(token)}
+                  data-testid={`button-edit-token-${token.id}`}
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => deleteToken(token.id)}
+                  data-testid={`button-delete-token-${token.id}`}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -110,6 +181,89 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
           </div>
         </Card>
       ))}
+
+      <Dialog open={!!editingToken} onOpenChange={(open) => !open && closeEditDialog()}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Token Settings</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label>Token Name</Label>
+              <div className="text-sm font-medium">{editingToken?.name}</div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-max-rpd">Max RPD (Requests/Day)</Label>
+                <Input
+                  id="edit-max-rpd"
+                  type="number"
+                  value={editMaxRPD}
+                  onChange={(e) => setEditMaxRPD(e.target.value)}
+                  required
+                  min="1"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-max-rpm">Max RPM (Requests/Minute)</Label>
+                <Input
+                  id="edit-max-rpm"
+                  type="number"
+                  value={editMaxRPM}
+                  onChange={(e) => setEditMaxRPM(e.target.value)}
+                  required
+                  min="1"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label>Allowed Providers</Label>
+              <p className="text-sm text-muted-foreground">
+                Leave empty to allow all providers. Select specific providers to restrict access.
+              </p>
+              {providers.length > 0 ? (
+                <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
+                  {providers.map((provider: any) => (
+                    <div key={provider.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`edit-provider-${provider.id}`}
+                        checked={editAllowedProviders.includes(provider.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setEditAllowedProviders([...editAllowedProviders, provider.id]);
+                          } else {
+                            setEditAllowedProviders(editAllowedProviders.filter(id => id !== provider.id));
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor={`edit-provider-${provider.id}`}
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        {provider.name}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No providers available</p>
+              )}
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={closeEditDialog} disabled={editLoading}>
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateToken} disabled={editLoading}>
+                {editLoading ? "Updating..." : "Update Token"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
