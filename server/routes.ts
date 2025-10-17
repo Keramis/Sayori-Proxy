@@ -169,12 +169,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       lastUsed,
       requestsToday: todayUsage,
       maxRPD: userToken.maxRPD,
-      remainingRPD: userToken.maxRPD - todayUsage,
+      remainingRPD: Math.round((userToken.maxRPD - todayUsage) * 100) / 100,
       modelUsage: Object.entries(modelUsage).map(([model, count]) => ({
         name: model,
         count,
       })),
     });
+  });
+
+  // User token update name
+  app.patch("/api/token/update-name", async (req, res) => {
+    const { token, name } = req.body;
+
+    if (!token || !name) {
+      return res.status(400).json({ error: "Token and name are required" });
+    }
+
+    const userToken = await storage.getUserToken(token);
+    if (!userToken) {
+      return res.status(404).json({ error: "Token not found" });
+    }
+
+    try {
+      const updatedToken = await storage.updateUserToken(userToken.id, { name });
+      res.json({ success: true, name: updatedToken.name });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // Admin routes (protected)
@@ -590,12 +611,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const originalCost = targetModel.requestCost || 1;
       let requestCost = originalCost;
       if (isCachedRequest && !provider.disableCacheDiscount) {
-        requestCost = Math.round((originalCost / 10) * 100) / 100;
+        // Apply 10x discount (divide by 10) with proper rounding to 2 decimal places
+        requestCost = Math.round(originalCost * 10) / 100;
       }
 
       // Check if user has enough remaining quota
       const todayUsage = await storage.getTodayUsageCount(userToken.id);
-      const remainingQuota = userToken.maxRPD - todayUsage;
+      const remainingQuota = Math.round((userToken.maxRPD - todayUsage) * 100) / 100;
 
       if (remainingQuota < requestCost) {
         return res.status(429).json({ 

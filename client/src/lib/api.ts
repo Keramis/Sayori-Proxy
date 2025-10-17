@@ -21,6 +21,20 @@ export const api = {
       return res.json();
     }),
 
+  // Update token name
+  updateTokenName: (token: string, name: string) =>
+    fetch("/api/token/update-name", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, name }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update token name");
+      }
+      return res.json();
+    }),
+
   // Admin login
   adminLogin: (username: string, password: string) =>
     fetch("/api/admin/login", {

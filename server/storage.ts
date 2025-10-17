@@ -373,7 +373,9 @@ export class JSONStorage implements IStorage {
     const records = this.db.usageRecords.filter(
       (r) => r.userTokenId === userTokenId && r.timestamp >= today
     );
-    return records.reduce((sum, record) => sum + (record.cost || 1), 0);
+    const sum = records.reduce((sum, record) => sum + (record.cost || 1), 0);
+    // Round to 2 decimal places to avoid floating point precision issues
+    return Math.round(sum * 100) / 100;
   }
 
   async getMinuteUsageCount(userTokenId: string): Promise<number> {
@@ -381,7 +383,9 @@ export class JSONStorage implements IStorage {
     const records = this.db.usageRecords.filter(
       (r) => r.userTokenId === userTokenId && r.timestamp >= oneMinuteAgo
     );
-    return records.reduce((sum, record) => sum + (record.cost || 1), 0);
+    const sum = records.reduce((sum, record) => sum + (record.cost || 1), 0);
+    // Round to 2 decimal places to avoid floating point precision issues
+    return Math.round(sum * 100) / 100;
   }
 
   // Stats methods

@@ -115,8 +115,8 @@ export default function Dashboard() {
       // Fetch immediately
       fetchStats();
 
-      // Then poll every second
-      pollInterval = setInterval(fetchStats, 1000);
+      // Then poll every 10 seconds
+      pollInterval = setInterval(fetchStats, 10000);
     };
 
     // Try WebSocket first, with fallback to polling after 2 seconds if no connection

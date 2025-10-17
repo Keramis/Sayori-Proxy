@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Key, RefreshCw } from "lucide-react";
+import { Key, RefreshCw, Edit2, Check, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useToast } from "@/hooks/use-toast";
@@ -22,8 +22,11 @@ export function UserTokenDialog() {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
   const [shouldFetch, setShouldFetch] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState("");
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
 
-  const { data: rawData, isLoading, error: queryError } = useQuery({
+  const { data: rawData, isLoading, error: queryError, refetch } = useQuery({
     queryKey: ["/api/token/stats", token],
     queryFn: () => api.getTokenStats(token),
     enabled: shouldFetch && token.length > 0,
@@ -32,6 +35,7 @@ export function UserTokenDialog() {
   });
 
   const stats = rawData ? {
+    name: rawData.name,
     lastUsed: rawData.lastUsed ? new Date(rawData.lastUsed).toLocaleString() : "Never",
     requestsToday: rawData.requestsToday,
     maxRPD: rawData.maxRPD,
@@ -55,6 +59,46 @@ export function UserTokenDialog() {
 
   const handleCheck = () => {
     setShouldFetch(true);
+  };
+
+  const handleStartEdit = () => {
+    setEditedName(stats?.name || "");
+    setIsEditingName(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingName(false);
+    setEditedName("");
+  };
+
+  const handleSaveName = async () => {
+    if (!editedName.trim()) {
+      toast({
+        title: "Invalid Name",
+        description: "Token name cannot be empty",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingName(true);
+    try {
+      await api.updateTokenName(token, editedName.trim());
+      toast({
+        title: "Success",
+        description: "Token name updated successfully",
+      });
+      setIsEditingName(false);
+      refetch();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update token name",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingName(false);
+    }
   };
 
   return (
@@ -109,6 +153,51 @@ export function UserTokenDialog() {
                 </p>
               </div>
             <div className="space-y-4 pt-4">
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">Token Name</div>
+                {isEditingName ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={editedName}
+                      onChange={(e) => setEditedName(e.target.value)}
+                      className="flex-1"
+                      placeholder="Enter token name"
+                      disabled={isUpdatingName}
+                    />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={handleSaveName}
+                      disabled={isUpdatingName}
+                      className="h-8 w-8"
+                    >
+                      <Check className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={handleCancelEdit}
+                      disabled={isUpdatingName}
+                      className="h-8 w-8"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="font-semibold flex-1">{stats.name}</div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={handleStartEdit}
+                      className="h-8 w-8"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Last Used</div>
                 <div className="font-semibold" data-testid="text-last-used">{stats.lastUsed}</div>
