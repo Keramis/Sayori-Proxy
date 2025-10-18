@@ -64,6 +64,9 @@ export interface UserToken {
   maxRPM: number;
   createdAt: number;
   allowedProviders?: string[];
+  parentTokenId?: string; // ID of parent token (undefined for master keys)
+  keyType: "master" | "sub"; // Type of key
+  expiresAt?: number; // Expiration timestamp (undefined = never expires)
 }
 
 export const insertUserTokenSchema = z.object({
@@ -71,6 +74,9 @@ export const insertUserTokenSchema = z.object({
   maxRPD: z.number().int().positive(),
   maxRPM: z.number().int().positive(),
   allowedProviders: z.array(z.string()).optional(),
+  parentTokenId: z.string().optional(),
+  keyType: z.enum(["master", "sub"]).default("master"),
+  expiresAt: z.number().optional(),
 });
 
 export type InsertUserToken = z.infer<typeof insertUserTokenSchema>;

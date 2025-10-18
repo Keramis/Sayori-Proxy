@@ -198,6 +198,270 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // User manage - comprehensive token details (requires token authentication)
+  app.post("/api/user/manage", async (req, res) => {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "Token is required" });
+    }
+
+    const userToken = await storage.getUserToken(token);
+    if (!userToken) {
+      return res.status(404).json({ error: "Token not found" });
+    }
+
+    try {
+      // Get all usage records for this token
+      const usageRecords = await storage.getUsageRecords(userToken.id);
+
+      // Get today's usage
+      const todayUsage = await storage.getTodayUsageCount(userToken.id);
+
+      // Calculate remaining quota
+      const remainingRPD = Math.round((userToken.maxRPD - todayUsage) * 100) / 100;
+
+      // Get last used timestamp
+      const lastUsed = usageRecords.length > 0
+        ? Math.max(...usageRecords.map((r) => r.timestamp))
+        : 0;
+
+      // Calculate model usage breakdown
+      const modelUsage: Record<string, { count: number; totalTokens: number; totalCost: number }> = {};
+      usageRecords.forEach((record) => {
+        if (!modelUsage[record.modelId]) {
+          modelUsage[record.modelId] = { count: 0, totalTokens: 0, totalCost: 0 };
+        }
+        modelUsage[record.modelId].count++;
+        modelUsage[record.modelId].totalTokens += record.tokens || 0;
+        modelUsage[record.modelId].totalCost += record.cost || 1;
+      });
+
+      // Calculate provider usage breakdown
+      const providerUsage: Record<string, { count: number; totalTokens: number; totalCost: number }> = {};
+      usageRecords.forEach((record) => {
+        if (!providerUsage[record.providerId]) {
+          providerUsage[record.providerId] = { count: 0, totalTokens: 0, totalCost: 0 };
+        }
+        providerUsage[record.providerId].count++;
+        providerUsage[record.providerId].totalTokens += record.tokens || 0;
+        providerUsage[record.providerId].totalCost += record.cost || 1;
+      });
+
+      // Get provider names
+      const providers = await storage.getProviders();
+      const providerMap = providers.reduce((acc, p) => {
+        acc[p.id] = p.name;
+        return acc;
+      }, {} as Record<string, string>);
+
+      // Calculate daily usage trend (last 7 days)
+      const now = new Date();
+      const dailyTrend: { date: string; usage: number; requests: number }[] = [];
+
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(now);
+        date.setUTCDate(date.getUTCDate() - i);
+        const dayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+        const dayEnd = dayStart + 86400000; // 24 hours in ms
+
+        const dayRecords = usageRecords.filter(
+          (r) => r.timestamp >= dayStart && r.timestamp < dayEnd
+        );
+
+        const dayUsage = dayRecords.reduce((sum, r) => sum + (r.cost || 1), 0);
+
+        dailyTrend.push({
+          date: date.toISOString().split('T')[0],
+          usage: Math.round(dayUsage * 100) / 100,
+          requests: dayRecords.length,
+        });
+      }
+
+      // Recent usage history (last 50 requests)
+      const recentHistory = usageRecords
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 50)
+        .map((record) => ({
+          id: record.id,
+          timestamp: record.timestamp,
+          modelId: record.modelId,
+          providerId: record.providerId,
+          providerName: providerMap[record.providerId] || "Unknown",
+          tokens: record.tokens,
+          inputTokens: record.inputTokens || 0,
+          outputTokens: record.outputTokens || 0,
+          cost: record.cost || 1,
+        }));
+
+      // Total lifetime statistics
+      const lifetimeStats = {
+        totalRequests: usageRecords.length,
+        totalTokens: usageRecords.reduce((sum, r) => sum + (r.tokens || 0), 0),
+        totalInputTokens: usageRecords.reduce((sum, r) => sum + (r.inputTokens || 0), 0),
+        totalOutputTokens: usageRecords.reduce((sum, r) => sum + (r.outputTokens || 0), 0),
+        totalCost: Math.round(usageRecords.reduce((sum, r) => sum + (r.cost || 1), 0) * 100) / 100,
+      };
+
+      // Get allowed providers
+      const allowedProviders = userToken.allowedProviders || [];
+      const allowedProviderNames = allowedProviders
+        .map(id => providerMap[id])
+        .filter(Boolean);
+
+      // Get sub-keys for this token
+      const subKeys = await storage.getSubKeys(userToken.id);
+      const subKeysWithUsage = await Promise.all(
+        subKeys.map(async (subKey) => {
+          const subKeyUsage = await storage.getTodayUsageCount(subKey.id);
+          return {
+            id: subKey.id,
+            name: subKey.name,
+            token: subKey.token,
+            keyType: subKey.keyType,
+            maxRPD: subKey.maxRPD,
+            maxRPM: subKey.maxRPM,
+            usedRPD: subKeyUsage,
+            remainingRPD: Math.round((subKey.maxRPD - subKeyUsage) * 100) / 100,
+            createdAt: subKey.createdAt,
+            expiresAt: subKey.expiresAt,
+            allowedProviders: subKey.allowedProviders || [],
+          };
+        })
+      );
+
+      // Get allocated quota info
+      const allocatedQuota = await storage.getTotalAllocatedQuota(userToken.id);
+
+      res.json({
+        // Token details
+        token: {
+          id: userToken.id,
+          name: userToken.name,
+          value: token,
+          createdAt: userToken.createdAt,
+          maxRPD: userToken.maxRPD,
+          maxRPM: userToken.maxRPM,
+          keyType: userToken.keyType,
+          parentTokenId: userToken.parentTokenId,
+          allowedProviders: allowedProviderNames,
+        },
+        // Current usage
+        usage: {
+          requestsToday: todayUsage,
+          remainingRPD: remainingRPD,
+          lastUsed: lastUsed,
+        },
+        // Statistics
+        stats: lifetimeStats,
+        // Breakdown
+        modelUsage: Object.entries(modelUsage)
+          .map(([model, data]) => ({
+            modelId: model,
+            ...data,
+          }))
+          .sort((a, b) => b.count - a.count),
+        providerUsage: Object.entries(providerUsage)
+          .map(([providerId, data]) => ({
+            providerId,
+            providerName: providerMap[providerId] || "Unknown",
+            ...data,
+          }))
+          .sort((a, b) => b.count - a.count),
+        // Trends
+        dailyTrend,
+        // Recent history
+        recentHistory,
+        // Sub-keys
+        subKeys: subKeysWithUsage,
+        allocatedQuota,
+        availableQuota: {
+          rpd: Math.round((userToken.maxRPD - allocatedQuota.rpd) * 100) / 100,
+          rpm: Math.round((userToken.maxRPM - allocatedQuota.rpm) * 100) / 100,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching user manage data:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create sub-key
+  app.post("/api/user/sub-keys", async (req, res) => {
+    const { token, name, maxRPD, maxRPM, allowedProviders, expiresAt } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "Parent token is required" });
+    }
+
+    const parentToken = await storage.getUserToken(token);
+    if (!parentToken) {
+      return res.status(404).json({ error: "Parent token not found" });
+    }
+
+    // Validate quota
+    const validation = await storage.canCreateSubKey(parentToken.id, maxRPD, maxRPM);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.reason });
+    }
+
+    // Validate expiration date (must be in the future)
+    if (expiresAt && expiresAt <= Date.now()) {
+      return res.status(400).json({ error: "Expiration date must be in the future" });
+    }
+
+    try {
+      const subKey = await storage.createUserToken({
+        name,
+        maxRPD,
+        maxRPM,
+        allowedProviders,
+        parentTokenId: parentToken.id,
+        keyType: "sub",
+        expiresAt,
+      });
+
+      res.json(subKey);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete sub-key (with cascade)
+  app.delete("/api/user/sub-keys/:id", async (req, res) => {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "Parent token is required" });
+    }
+
+    const parentToken = await storage.getUserToken(token);
+    if (!parentToken) {
+      return res.status(404).json({ error: "Parent token not found" });
+    }
+
+    const subKey = await storage.getUserTokenById(req.params.id);
+    if (!subKey) {
+      return res.status(404).json({ error: "Sub-key not found" });
+    }
+
+    // Verify ownership
+    if (subKey.parentTokenId !== parentToken.id) {
+      return res.status(403).json({ error: "You don't own this sub-key" });
+    }
+
+    try {
+      // Cascade delete sub-keys
+      const deletedCount = await storage.cascadeDeleteSubKeys(subKey.id);
+      // Delete the sub-key itself
+      await storage.deleteUserToken(subKey.id);
+
+      res.json({ success: true, deletedCount: deletedCount + 1 });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Admin routes (protected)
   
   // Providers
@@ -590,6 +854,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log incoming request
       console.log(`[${requestId}] Request incoming from ${userToken.name}. In: ${inputTokens} tokens.`);
 
+      // For sub-keys, validate the entire ancestor chain
+      if (userToken.keyType === "sub") {
+        const chainValidation = await storage.validateAncestorChain(userToken.id);
+        if (!chainValidation.valid) {
+          return res.status(429).json({ error: chainValidation.reason });
+        }
+      }
+
       // Calculate request cost and check quota availability
       const messagesPayload = JSON.stringify(requestBody.messages || []);
       const cacheKey = `${userToken.id}:${messagesPayload}`;
@@ -722,16 +994,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const outputTokens = totalTokens > inputTokens ? totalTokens - inputTokens : 0;
 
           // Track usage for streaming with pre-calculated cost
-          // Create a single usage record with the actual cost (including fractional)
-          await storage.createUsageRecord({
-            userTokenId: userToken.id,
-            modelId: targetModel.modelId,
-            providerId: provider.id,
-            tokens: totalTokens,
-            inputTokens: inputTokens,
-            outputTokens: outputTokens,
-            cost: requestCost,
-          });
+          // For sub-keys, create usage records for entire ancestor chain
+          if (userToken.keyType === "sub") {
+            await storage.createUsageRecordForChain(userToken.id, {
+              modelId: targetModel.modelId,
+              providerId: provider.id,
+              tokens: totalTokens,
+              inputTokens: inputTokens,
+              outputTokens: outputTokens,
+              cost: requestCost,
+            });
+          } else {
+            // For master keys, create a single usage record
+            await storage.createUsageRecord({
+              userTokenId: userToken.id,
+              modelId: targetModel.modelId,
+              providerId: provider.id,
+              tokens: totalTokens,
+              inputTokens: inputTokens,
+              outputTokens: outputTokens,
+              cost: requestCost,
+            });
+          }
 
           // Log completed request
           console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${totalTokens} tokens.`);
@@ -747,16 +1031,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const tokens = data.usage?.total_tokens || 0;
         const outputTokens = tokens > inputTokens ? tokens - inputTokens : 0;
 
-        // Create a single usage record with the actual cost (including fractional)
-        await storage.createUsageRecord({
-          userTokenId: userToken.id,
-          modelId: targetModel.modelId,
-          providerId: provider.id,
-          tokens,
-          inputTokens: inputTokens,
-          outputTokens: outputTokens,
-          cost: requestCost,
-        });
+        // For sub-keys, create usage records for entire ancestor chain
+        if (userToken.keyType === "sub") {
+          await storage.createUsageRecordForChain(userToken.id, {
+            modelId: targetModel.modelId,
+            providerId: provider.id,
+            tokens,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cost: requestCost,
+          });
+        } else {
+          // For master keys, create a single usage record
+          await storage.createUsageRecord({
+            userTokenId: userToken.id,
+            modelId: targetModel.modelId,
+            providerId: provider.id,
+            tokens,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cost: requestCost,
+          });
+        }
 
         // Log completed request
         console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${tokens} tokens.`);

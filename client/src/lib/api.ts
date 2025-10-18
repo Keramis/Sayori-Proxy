@@ -35,6 +35,48 @@ export const api = {
       return res.json();
     }),
 
+  // Get comprehensive user token management data
+  getUserManageData: (token: string) =>
+    fetch("/api/user/manage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to fetch user data");
+      }
+      return res.json();
+    }),
+
+  // Create sub-key
+  createSubKey: (token: string, data: { name: string; maxRPD: number; maxRPM: number; allowedProviders?: string[]; expiresAt?: number }) =>
+    fetch("/api/user/sub-keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, ...data }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create sub-key");
+      }
+      return res.json();
+    }),
+
+  // Delete sub-key
+  deleteSubKey: (token: string, subKeyId: string) =>
+    fetch(`/api/user/sub-keys/${subKeyId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete sub-key");
+      }
+      return res.json();
+    }),
+
   // Admin login
   adminLogin: (username: string, password: string) =>
     fetch("/api/admin/login", {

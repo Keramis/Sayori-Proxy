@@ -59,6 +59,16 @@ export interface IStorage {
   updateUserToken(id: string, userToken: Partial<InsertUserToken>): Promise<UserToken | undefined>;
   deleteUserToken(id: string): Promise<boolean>;
 
+  // Sub-key methods
+  getSubKeys(parentTokenId: string): Promise<UserToken[]>;
+  getAncestorChain(tokenId: string): Promise<UserToken[]>;
+  getRootToken(tokenId: string): Promise<UserToken | undefined>;
+  getTotalAllocatedQuota(parentTokenId: string): Promise<{ rpd: number; rpm: number }>;
+  canCreateSubKey(parentTokenId: string, requestedRPD: number, requestedRPM: number): Promise<{ valid: boolean; reason?: string }>;
+  validateAncestorChain(tokenId: string): Promise<{ valid: boolean; reason?: string }>;
+  createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void>;
+  cascadeDeleteSubKeys(parentTokenId: string): Promise<number>;
+
   // Usage methods
   createUsageRecord(record: InsertUsageRecord): Promise<UsageRecord>;
   getUsageRecords(userTokenId: string): Promise<UsageRecord[]>;
@@ -73,7 +83,7 @@ export interface IStorage {
   // Admin methods
   getAdminCredentials(): Promise<AdminCredentials>;
   updateAdminCredentials(credentials: AdminCredentials): Promise<void>;
-  
+
   // Auth methods
   getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth">;
   getGeneralPassword(): Promise<string | undefined>;
@@ -144,6 +154,20 @@ export class JSONStorage implements IStorage {
                 };
               }
               return record;
+            });
+          }
+          // Migrate existing user tokens to include keyType and parentTokenId
+          if (db.userTokens && Array.isArray(db.userTokens)) {
+            db.userTokens = db.userTokens.map((token: any) => {
+              // Add keyType if missing (default to master for existing tokens)
+              if (!token.keyType) {
+                token.keyType = "master";
+              }
+              // Ensure parentTokenId exists (undefined for master keys)
+              if (token.parentTokenId === undefined) {
+                token.parentTokenId = undefined;
+              }
+              return token;
             });
           }
           return db;
@@ -326,6 +350,7 @@ export class JSONStorage implements IStorage {
     const newToken: UserToken = {
       id: randomUUID(),
       ...userToken,
+      keyType: userToken.keyType || "master",
       token,
       createdAt: Date.now(),
     };
@@ -348,6 +373,168 @@ export class JSONStorage implements IStorage {
     this.db.userTokens = this.db.userTokens.filter((t) => t.id !== id);
     this.saveDatabase();
     return this.db.userTokens.length < initialLength;
+  }
+
+  // Sub-key specific methods
+
+  // Get all sub-keys of a parent token
+  async getSubKeys(parentTokenId: string): Promise<UserToken[]> {
+    return this.db.userTokens.filter((t) => t.parentTokenId === parentTokenId);
+  }
+
+  // Get ancestor chain from child to root (returns array: [child, parent, grandparent, ...])
+  async getAncestorChain(tokenId: string): Promise<UserToken[]> {
+    const chain: UserToken[] = [];
+    let currentId: string | undefined = tokenId;
+
+    while (currentId) {
+      const token = await this.getUserTokenById(currentId);
+      if (!token) break;
+
+      chain.push(token);
+      currentId = token.parentTokenId;
+
+      // Prevent infinite loops
+      if (chain.length > 100) {
+        throw new Error("Circular reference detected in token hierarchy");
+      }
+    }
+
+    return chain;
+  }
+
+  // Get the root/master token for any token in the hierarchy
+  async getRootToken(tokenId: string): Promise<UserToken | undefined> {
+    const chain = await this.getAncestorChain(tokenId);
+    return chain[chain.length - 1];
+  }
+
+  // Calculate total allocated quota for all sub-keys of a parent
+  async getTotalAllocatedQuota(parentTokenId: string): Promise<{ rpd: number; rpm: number }> {
+    const subKeys = await this.getSubKeys(parentTokenId);
+
+    const totalRPD = subKeys.reduce((sum, key) => sum + key.maxRPD, 0);
+    const totalRPM = subKeys.reduce((sum, key) => sum + key.maxRPM, 0);
+
+    return {
+      rpd: Math.round(totalRPD * 100) / 100,
+      rpm: Math.round(totalRPM * 100) / 100,
+    };
+  }
+
+  // Validate if a parent can create a sub-key with given quotas
+  async canCreateSubKey(parentTokenId: string, requestedRPD: number, requestedRPM: number): Promise<{ valid: boolean; reason?: string }> {
+    const parent = await this.getUserTokenById(parentTokenId);
+    if (!parent) {
+      return { valid: false, reason: "Parent token not found" };
+    }
+
+    const allocated = await this.getTotalAllocatedQuota(parentTokenId);
+
+    const newTotalRPD = allocated.rpd + requestedRPD;
+    const newTotalRPM = allocated.rpm + requestedRPM;
+
+    if (newTotalRPD > parent.maxRPD) {
+      return {
+        valid: false,
+        reason: `Exceeds parent RPD limit. Available: ${parent.maxRPD - allocated.rpd}, Requested: ${requestedRPD}`,
+      };
+    }
+
+    if (newTotalRPM > parent.maxRPM) {
+      return {
+        valid: false,
+        reason: `Exceeds parent RPM limit. Available: ${parent.maxRPM - allocated.rpm}, Requested: ${requestedRPM}`,
+      };
+    }
+
+    return { valid: true };
+  }
+
+  // Check if entire ancestor chain is valid for processing requests
+  async validateAncestorChain(tokenId: string): Promise<{ valid: boolean; reason?: string }> {
+    try {
+      const chain = await this.getAncestorChain(tokenId);
+
+      // Check each token in the chain
+      for (const token of chain) {
+        // Check expiration
+        if (token.expiresAt && token.expiresAt <= Date.now()) {
+          return {
+            valid: false,
+            reason: `Token expired: ${token.name} (${token.keyType === "master" ? "master key" : "sub-key"})`,
+          };
+        }
+
+        const todayUsage = await this.getTodayUsageCount(token.id);
+        const minuteUsage = await this.getMinuteUsageCount(token.id);
+
+        if (todayUsage >= token.maxRPD) {
+          return {
+            valid: false,
+            reason: `Daily limit exceeded for ${token.keyType === "master" ? "master key" : "parent sub-key"}: ${token.name}`,
+          };
+        }
+
+        if (minuteUsage >= token.maxRPM) {
+          return {
+            valid: false,
+            reason: `Rate limit exceeded for ${token.keyType === "master" ? "master key" : "parent sub-key"}: ${token.name}`,
+          };
+        }
+      }
+
+      return { valid: true };
+    } catch (error: any) {
+      return { valid: false, reason: error.message };
+    }
+  }
+
+  // Create usage records for entire ancestor chain
+  async createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void> {
+    const chain = await this.getAncestorChain(tokenId);
+
+    // Create usage record for each token in the chain
+    for (const token of chain) {
+      await this.createUsageRecord({
+        ...record,
+        userTokenId: token.id,
+      });
+    }
+  }
+
+  // Cascade delete sub-keys (2 generations at a time with delay)
+  async cascadeDeleteSubKeys(parentTokenId: string): Promise<number> {
+    let totalDeleted = 0;
+    let currentGeneration = [parentTokenId];
+
+    // Delete up to 2 generations at a time
+    for (let gen = 0; gen < 2 && currentGeneration.length > 0; gen++) {
+      const nextGeneration: string[] = [];
+
+      for (const tokenId of currentGeneration) {
+        const subKeys = await this.getSubKeys(tokenId);
+
+        for (const subKey of subKeys) {
+          nextGeneration.push(subKey.id);
+          await this.deleteUserToken(subKey.id);
+          totalDeleted++;
+        }
+      }
+
+      currentGeneration = nextGeneration;
+    }
+
+    // If there are more generations, schedule async deletion
+    if (currentGeneration.length > 0) {
+      setTimeout(async () => {
+        for (const tokenId of currentGeneration) {
+          await this.cascadeDeleteSubKeys(tokenId);
+        }
+      }, 100); // Small delay before continuing
+    }
+
+    return totalDeleted;
   }
 
   // Usage methods

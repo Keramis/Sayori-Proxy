@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Header } from "@/components/Header";
 import { StatCard } from "@/components/StatCard";
 import { ModelProviderCard } from "@/components/ModelProviderCard";
-import { UserTokenDialog } from "@/components/UserTokenDialog";
+import { UserTokenOverview } from "@/components/UserTokenOverview";
 import { Activity, TrendingUp, Zap, Clock, BarChart3 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -172,7 +172,11 @@ export default function Dashboard() {
           <p className="text-muted-foreground text-lg mb-6">
             Router that will never leave you hanging.
           </p>
-          <UserTokenDialog />
+        </div>
+
+        {/* User Token Overview */}
+        <div className="mb-12">
+          <UserTokenOverview />
         </div>
 
         {/* Stats Grid */}
