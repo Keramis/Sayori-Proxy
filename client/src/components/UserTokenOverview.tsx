@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Key, RefreshCw, Edit2, Check, X, LogOut, Settings } from "lucide-react";
 import { api } from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
@@ -41,6 +42,8 @@ export function UserTokenOverview() {
     maxRPD: rawData.maxRPD,
     remainingRPD: rawData.remainingRPD,
     models: rawData.modelUsage,
+    disabled: rawData.disabled || false,
+    expiresAt: rawData.expiresAt,
   } : null;
 
   const error = queryError ? (queryError as any).message || "Failed to fetch token stats" : "";
@@ -229,6 +232,27 @@ export function UserTokenOverview() {
               </Button>
             </div>
           )}
+        </div>
+
+        <div>
+          <div className="text-sm text-muted-foreground mb-1">Status</div>
+          {(() => {
+            const isExpired = stats?.expiresAt && stats.expiresAt <= Date.now();
+            const isDisabled = stats?.disabled;
+
+            if (isDisabled || isExpired) {
+              return (
+                <Badge variant="destructive" className="text-xs">
+                  {isExpired ? "Expired & Disabled" : "Disabled"}
+                </Badge>
+              );
+            }
+            return (
+              <Badge variant="default" className="text-xs bg-green-600">
+                Online
+              </Badge>
+            );
+          })()}
         </div>
 
         <div>

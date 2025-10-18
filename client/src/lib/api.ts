@@ -77,6 +77,34 @@ export const api = {
       return res.json();
     }),
 
+  // Disable sub-key (cascade)
+  disableSubKey: (token: string, subKeyId: string) =>
+    fetch(`/api/user/sub-keys/${subKeyId}/disable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to disable sub-key");
+      }
+      return res.json();
+    }),
+
+  // Enable sub-key (cascade)
+  enableSubKey: (token: string, subKeyId: string) =>
+    fetch(`/api/user/sub-keys/${subKeyId}/enable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to enable sub-key");
+      }
+      return res.json();
+    }),
+
   // Admin login
   adminLogin: (username: string, password: string) =>
     fetch("/api/admin/login", {

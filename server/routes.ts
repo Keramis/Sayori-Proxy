@@ -169,7 +169,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       lastUsed,
       requestsToday: todayUsage,
       maxRPD: userToken.maxRPD,
-      remainingRPD: Math.round((userToken.maxRPD - todayUsage) * 100) / 100,
+      remainingRPD: Number((userToken.maxRPD - todayUsage).toFixed(2)),
+      disabled: userToken.disabled || false,
+      expiresAt: userToken.expiresAt,
       modelUsage: Object.entries(modelUsage).map(([model, count]) => ({
         name: model,
         count,
@@ -219,7 +221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const todayUsage = await storage.getTodayUsageCount(userToken.id);
 
       // Calculate remaining quota
-      const remainingRPD = Math.round((userToken.maxRPD - todayUsage) * 100) / 100;
+      const remainingRPD = Number((userToken.maxRPD - todayUsage).toFixed(2));
 
       // Get last used timestamp
       const lastUsed = usageRecords.length > 0
@@ -273,7 +275,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         dailyTrend.push({
           date: date.toISOString().split('T')[0],
-          usage: Math.round(dayUsage * 100) / 100,
+          usage: Number(dayUsage.toFixed(2)),
           requests: dayRecords.length,
         });
       }
@@ -300,7 +302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalTokens: usageRecords.reduce((sum, r) => sum + (r.tokens || 0), 0),
         totalInputTokens: usageRecords.reduce((sum, r) => sum + (r.inputTokens || 0), 0),
         totalOutputTokens: usageRecords.reduce((sum, r) => sum + (r.outputTokens || 0), 0),
-        totalCost: Math.round(usageRecords.reduce((sum, r) => sum + (r.cost || 1), 0) * 100) / 100,
+        totalCost: Number(usageRecords.reduce((sum, r) => sum + (r.cost || 1), 0).toFixed(2)),
       };
 
       // Get allowed providers
@@ -322,9 +324,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             maxRPD: subKey.maxRPD,
             maxRPM: subKey.maxRPM,
             usedRPD: subKeyUsage,
-            remainingRPD: Math.round((subKey.maxRPD - subKeyUsage) * 100) / 100,
+            remainingRPD: Number((subKey.maxRPD - subKeyUsage).toFixed(2)),
             createdAt: subKey.createdAt,
             expiresAt: subKey.expiresAt,
+            disabled: subKey.disabled || false,
             allowedProviders: subKey.allowedProviders || [],
           };
         })
@@ -376,8 +379,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         subKeys: subKeysWithUsage,
         allocatedQuota,
         availableQuota: {
-          rpd: Math.round((userToken.maxRPD - allocatedQuota.rpd) * 100) / 100,
-          rpm: Math.round((userToken.maxRPM - allocatedQuota.rpm) * 100) / 100,
+          rpd: Number((userToken.maxRPD - allocatedQuota.rpd).toFixed(2)),
+          rpm: Number((userToken.maxRPM - allocatedQuota.rpm).toFixed(2)),
         },
       });
     } catch (error: any) {
@@ -457,6 +460,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteUserToken(subKey.id);
 
       res.json({ success: true, deletedCount: deletedCount + 1 });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Disable sub-key (with cascade)
+  app.post("/api/user/sub-keys/:id/disable", async (req, res) => {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "Parent token is required" });
+    }
+
+    const parentToken = await storage.getUserToken(token);
+    if (!parentToken) {
+      return res.status(404).json({ error: "Parent token not found" });
+    }
+
+    const subKey = await storage.getUserTokenById(req.params.id);
+    if (!subKey) {
+      return res.status(404).json({ error: "Sub-key not found" });
+    }
+
+    // Verify ownership
+    if (subKey.parentTokenId !== parentToken.id) {
+      return res.status(403).json({ error: "You don't own this sub-key" });
+    }
+
+    try {
+      // Disable the sub-key
+      await storage.updateUserToken(subKey.id, { disabled: true });
+      // Cascade disable all children
+      const disabledCount = await storage.cascadeDisableSubKeys(subKey.id);
+
+      res.json({ success: true, disabledCount: disabledCount + 1 });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Enable sub-key (with cascade, but skip expired ones)
+  app.post("/api/user/sub-keys/:id/enable", async (req, res) => {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "Parent token is required" });
+    }
+
+    const parentToken = await storage.getUserToken(token);
+    if (!parentToken) {
+      return res.status(404).json({ error: "Parent token not found" });
+    }
+
+    const subKey = await storage.getUserTokenById(req.params.id);
+    if (!subKey) {
+      return res.status(404).json({ error: "Sub-key not found" });
+    }
+
+    // Verify ownership
+    if (subKey.parentTokenId !== parentToken.id) {
+      return res.status(403).json({ error: "You don't own this sub-key" });
+    }
+
+    // Check if the sub-key is expired
+    if (subKey.expiresAt && subKey.expiresAt <= Date.now()) {
+      return res.status(400).json({ error: "Cannot enable expired sub-key. Please update expiration date first." });
+    }
+
+    try {
+      // Enable the sub-key
+      await storage.updateUserToken(subKey.id, { disabled: false });
+      // Cascade enable all non-expired children
+      const enabledCount = await storage.cascadeEnableSubKeys(subKey.id);
+
+      res.json({ success: true, enabledCount: enabledCount + 1 });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -884,7 +962,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let requestCost = originalCost;
       if (isCachedRequest && !provider.disableCacheDiscount) {
         // Apply 10x discount (divide by 10) with proper rounding to 2 decimal places
-        requestCost = Math.round(originalCost * 10) / 100;
+        requestCost = Number((originalCost / 10).toFixed(2));
       }
 
       // Check if entire ancestor chain has enough quota for this request
@@ -903,7 +981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         // For master keys, check only this token
         const todayUsage = await storage.getTodayUsageCount(userToken.id);
-        const remainingQuota = Math.round((userToken.maxRPD - todayUsage) * 100) / 100;
+        const remainingQuota = Number((userToken.maxRPD - todayUsage).toFixed(2));
 
         if (remainingQuota < requestCost) {
           return res.status(429).json({

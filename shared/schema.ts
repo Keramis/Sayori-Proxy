@@ -67,6 +67,7 @@ export interface UserToken {
   parentTokenId?: string; // ID of parent token (undefined for master keys)
   keyType: "master" | "sub"; // Type of key
   expiresAt?: number; // Expiration timestamp (undefined = never expires)
+  disabled?: boolean; // If true, the key is disabled (default: false)
 }
 
 export const insertUserTokenSchema = z.object({
@@ -77,6 +78,7 @@ export const insertUserTokenSchema = z.object({
   parentTokenId: z.string().optional(),
   keyType: z.enum(["master", "sub"]).default("master"),
   expiresAt: z.number().optional(),
+  disabled: z.boolean().optional(),
 });
 
 export type InsertUserToken = z.infer<typeof insertUserTokenSchema>;

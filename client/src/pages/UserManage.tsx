@@ -32,6 +32,10 @@ import {
   Plus,
   Trash2,
   Network,
+  Power,
+  Edit2,
+  Check,
+  X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -65,6 +69,11 @@ export default function UserManage() {
   const [showTokenValue, setShowTokenValue] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
 
+  // Token name editing state
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState("");
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
+
   // Sub-key management state
   const [showSubKeyForm, setShowSubKeyForm] = useState(false);
   const [subKeyName, setSubKeyName] = useState("");
@@ -73,6 +82,7 @@ export default function UserManage() {
   const [subKeyExpiration, setSubKeyExpiration] = useState("");
   const [isCreatingSubKey, setIsCreatingSubKey] = useState(false);
   const [deletingSubKeyId, setDeletingSubKeyId] = useState<string | null>(null);
+  const [togglingSubKeyId, setTogglingSubKeyId] = useState<string | null>(null);
   const subKeyFormRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -228,6 +238,78 @@ export default function UserManage() {
     }
   };
 
+  const handleToggleSubKeyStatus = async (subKeyId: string, subKeyName: string, currentDisabled: boolean) => {
+    const action = currentDisabled ? "enable" : "disable";
+    if (!confirm(`Are you sure you want to ${action} "${subKeyName}"? This will also ${action} all its child sub-keys.`)) {
+      return;
+    }
+
+    setTogglingSubKeyId(subKeyId);
+    try {
+      const result = currentDisabled
+        ? await api.enableSubKey(token, subKeyId)
+        : await api.disableSubKey(token, subKeyId);
+
+      const count = currentDisabled ? result.enabledCount : result.disabledCount;
+
+      toast({
+        title: "Success",
+        description: `${currentDisabled ? 'Enabled' : 'Disabled'} "${subKeyName}" and ${count - 1} child sub-keys`,
+      });
+
+      // Refetch data
+      refetch();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || `Failed to ${action} sub-key`,
+        variant: "destructive",
+      });
+    } finally {
+      setTogglingSubKeyId(null);
+    }
+  };
+
+  const handleStartEditName = () => {
+    setEditedName(data?.token?.name || "");
+    setIsEditingName(true);
+  };
+
+  const handleCancelEditName = () => {
+    setIsEditingName(false);
+    setEditedName("");
+  };
+
+  const handleSaveName = async () => {
+    if (!editedName.trim()) {
+      toast({
+        title: "Invalid Name",
+        description: "Token name cannot be empty",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingName(true);
+    try {
+      await api.updateTokenName(token, editedName.trim());
+      toast({
+        title: "Success",
+        description: "Token name updated successfully",
+      });
+      setIsEditingName(false);
+      refetch();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update token name",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingName(false);
+    }
+  };
+
   const handleToggleSubKeyForm = () => {
     setShowSubKeyForm(!showSubKeyForm);
 
@@ -367,7 +449,47 @@ export default function UserManage() {
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div>
               <div className="text-sm text-muted-foreground mb-1">Token Name</div>
-              <div className="font-semibold text-base md:text-lg break-words">{data.token.name}</div>
+              {isEditingName ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    className="flex-1 text-sm"
+                    placeholder="Enter token name"
+                    disabled={isUpdatingName}
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={handleSaveName}
+                    disabled={isUpdatingName}
+                    className="h-8 w-8 flex-shrink-0"
+                  >
+                    <Check className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={handleCancelEditName}
+                    disabled={isUpdatingName}
+                    className="h-8 w-8 flex-shrink-0"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="font-semibold text-base md:text-lg break-words flex-1">{data.token.name}</div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={handleStartEditName}
+                    className="h-8 w-8 flex-shrink-0"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
             </div>
             <div>
               <div className="text-sm text-muted-foreground mb-1">Token Value</div>
@@ -842,17 +964,25 @@ export default function UserManage() {
                 <h3 className="font-semibold text-sm md:text-base">Active Sub-Keys ({data.subKeys.length})</h3>
                 {data.subKeys.map((subKey: any) => {
                   const isExpired = subKey.expiresAt && subKey.expiresAt <= Date.now();
+                  const isDisabled = subKey.disabled || false;
                   return (
-                    <Card key={subKey.id} className={`border-l-4 ${isExpired ? 'border-l-red-500' : 'border-l-primary/50'}`}>
+                    <Card key={subKey.id} className={`border-l-4 ${isExpired || isDisabled ? 'border-l-red-500' : 'border-l-primary/50'}`}>
                       <CardContent className="pt-4 md:pt-6">
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="space-y-3">
                             <div>
                               <div className="text-xs md:text-sm text-muted-foreground mb-1">Name</div>
                               <div className="font-semibold text-sm md:text-base break-words">{subKey.name}</div>
-                              {isExpired && (
-                                <Badge variant="destructive" className="mt-1 text-xs">Expired</Badge>
-                              )}
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {isExpired && (
+                                  <Badge variant="destructive" className="text-xs">Expired</Badge>
+                                )}
+                                {isDisabled ? (
+                                  <Badge variant="destructive" className="text-xs">Disabled</Badge>
+                                ) : (
+                                  <Badge variant="default" className="text-xs bg-green-600">Online</Badge>
+                                )}
+                              </div>
                             </div>
                             <div>
                               <div className="text-xs md:text-sm text-muted-foreground mb-1">Token</div>
@@ -911,16 +1041,30 @@ export default function UserManage() {
                                 </div>
                               )}
                             </div>
-                            <Button
-                              onClick={() => handleDeleteSubKey(subKey.id, subKey.name)}
-                              disabled={deletingSubKeyId === subKey.id}
-                              variant="destructive"
-                              size="sm"
-                              className="w-full gap-2 text-xs md:text-sm"
-                            >
-                              <Trash2 className="h-3 w-3 md:h-4 md:w-4" />
-                              {deletingSubKeyId === subKey.id ? "Deleting..." : "Delete Sub-Key"}
-                            </Button>
+                            <div className="flex flex-col gap-2">
+                              <Button
+                                onClick={() => handleToggleSubKeyStatus(subKey.id, subKey.name, isDisabled)}
+                                disabled={togglingSubKeyId === subKey.id}
+                                variant={isDisabled ? "default" : "outline"}
+                                size="sm"
+                                className="w-full gap-2 text-xs md:text-sm"
+                              >
+                                <Power className="h-3 w-3 md:h-4 md:w-4" />
+                                {togglingSubKeyId === subKey.id
+                                  ? (isDisabled ? "Enabling..." : "Disabling...")
+                                  : (isDisabled ? "Enable Sub-Key" : "Disable Sub-Key")}
+                              </Button>
+                              <Button
+                                onClick={() => handleDeleteSubKey(subKey.id, subKey.name)}
+                                disabled={deletingSubKeyId === subKey.id}
+                                variant="destructive"
+                                size="sm"
+                                className="w-full gap-2 text-xs md:text-sm"
+                              >
+                                <Trash2 className="h-3 w-3 md:h-4 md:w-4" />
+                                {deletingSubKeyId === subKey.id ? "Deleting..." : "Delete Sub-Key"}
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </CardContent>

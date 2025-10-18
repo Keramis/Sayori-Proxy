@@ -69,6 +69,8 @@ export interface IStorage {
   validateAncestorChainQuota(tokenId: string, requestCost: number): Promise<{ valid: boolean; reason?: string; insufficientToken?: string }>;
   createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void>;
   cascadeDeleteSubKeys(parentTokenId: string): Promise<number>;
+  cascadeDisableSubKeys(parentTokenId: string): Promise<number>;
+  cascadeEnableSubKeys(parentTokenId: string): Promise<number>;
 
   // Usage methods
   createUsageRecord(record: InsertUsageRecord): Promise<UsageRecord>;
@@ -167,6 +169,10 @@ export class JSONStorage implements IStorage {
               // Ensure parentTokenId exists (undefined for master keys)
               if (token.parentTokenId === undefined) {
                 token.parentTokenId = undefined;
+              }
+              // Add disabled field if missing (default to false)
+              if (token.disabled === undefined) {
+                token.disabled = false;
               }
               return token;
             });
@@ -352,6 +358,7 @@ export class JSONStorage implements IStorage {
       id: randomUUID(),
       ...userToken,
       keyType: userToken.keyType || "master",
+      disabled: userToken.disabled || false,
       token,
       createdAt: Date.now(),
     };
@@ -414,12 +421,12 @@ export class JSONStorage implements IStorage {
   async getTotalAllocatedQuota(parentTokenId: string): Promise<{ rpd: number; rpm: number }> {
     const subKeys = await this.getSubKeys(parentTokenId);
 
-    const totalRPD = subKeys.reduce((sum, key) => sum + key.maxRPD, 0);
-    const totalRPM = subKeys.reduce((sum, key) => sum + key.maxRPM, 0);
+    const totalRPD = subKeys.reduce((sum, key) => sum + (key.maxRPD || 0), 0);
+    const totalRPM = subKeys.reduce((sum, key) => sum + (key.maxRPM || 0), 0);
 
     return {
-      rpd: Math.round(totalRPD * 100) / 100,
-      rpm: Math.round(totalRPM * 100) / 100,
+      rpd: Number((totalRPD).toFixed(2)),
+      rpm: Number((totalRPM).toFixed(2)),
     };
   }
 
@@ -459,11 +466,24 @@ export class JSONStorage implements IStorage {
 
       // Check each token in the chain
       for (const token of chain) {
-        // Check expiration
-        if (token.expiresAt && token.expiresAt <= Date.now()) {
+        // Check if disabled
+        if (token.disabled) {
           return {
             valid: false,
-            reason: `Token expired: ${token.name} (${token.keyType === "master" ? "master key" : "sub-key"})`,
+            reason: `Token disabled: ${token.name} (${token.keyType === "master" ? "master key" : "sub-key"})`,
+          };
+        }
+
+        // Check expiration and auto-disable if expired
+        if (token.expiresAt && token.expiresAt <= Date.now()) {
+          // Auto-disable the expired token
+          await this.updateUserToken(token.id, { disabled: true });
+          // Cascade disable all children
+          await this.cascadeDisableSubKeys(token.id);
+
+          return {
+            valid: false,
+            reason: `Token expired and auto-disabled: ${token.name} (${token.keyType === "master" ? "master key" : "sub-key"})`,
           };
         }
 
@@ -499,7 +519,7 @@ export class JSONStorage implements IStorage {
       // Check each token in the chain has enough remaining quota
       for (const token of chain) {
         const todayUsage = await this.getTodayUsageCount(token.id);
-        const remainingQuota = Math.round((token.maxRPD - todayUsage) * 100) / 100;
+        const remainingQuota = Number((token.maxRPD - todayUsage).toFixed(2));
 
         if (remainingQuota < requestCost) {
           return {
@@ -563,6 +583,45 @@ export class JSONStorage implements IStorage {
     return totalDeleted;
   }
 
+  // Cascade disable sub-keys (recursively disable all descendants)
+  async cascadeDisableSubKeys(parentTokenId: string): Promise<number> {
+    let totalDisabled = 0;
+    const subKeys = await this.getSubKeys(parentTokenId);
+
+    for (const subKey of subKeys) {
+      // Disable this sub-key
+      await this.updateUserToken(subKey.id, { disabled: true });
+      totalDisabled++;
+
+      // Recursively disable its children
+      const childrenDisabled = await this.cascadeDisableSubKeys(subKey.id);
+      totalDisabled += childrenDisabled;
+    }
+
+    return totalDisabled;
+  }
+
+  // Cascade enable sub-keys (recursively enable all descendants)
+  async cascadeEnableSubKeys(parentTokenId: string): Promise<number> {
+    let totalEnabled = 0;
+    const subKeys = await this.getSubKeys(parentTokenId);
+
+    for (const subKey of subKeys) {
+      // Only enable if not expired
+      const isExpired = subKey.expiresAt && subKey.expiresAt <= Date.now();
+      if (!isExpired) {
+        await this.updateUserToken(subKey.id, { disabled: false });
+        totalEnabled++;
+
+        // Recursively enable its children
+        const childrenEnabled = await this.cascadeEnableSubKeys(subKey.id);
+        totalEnabled += childrenEnabled;
+      }
+    }
+
+    return totalEnabled;
+  }
+
   // Usage methods
   async createUsageRecord(record: InsertUsageRecord): Promise<UsageRecord> {
     const newRecord: UsageRecord = {
@@ -588,7 +647,7 @@ export class JSONStorage implements IStorage {
     );
     const sum = records.reduce((sum, record) => sum + (record.cost || 1), 0);
     // Round to 2 decimal places to avoid floating point precision issues
-    return Math.round(sum * 100) / 100;
+    return Number(sum.toFixed(2));
   }
 
   async getMinuteUsageCount(userTokenId: string): Promise<number> {
@@ -598,7 +657,7 @@ export class JSONStorage implements IStorage {
     );
     const sum = records.reduce((sum, record) => sum + (record.cost || 1), 0);
     // Round to 2 decimal places to avoid floating point precision issues
-    return Math.round(sum * 100) / 100;
+    return Number(sum.toFixed(2));
   }
 
   // Stats methods
