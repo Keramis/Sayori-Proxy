@@ -887,20 +887,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         requestCost = Math.round(originalCost * 10) / 100;
       }
 
-      // Check if user has enough remaining quota
-      const todayUsage = await storage.getTodayUsageCount(userToken.id);
-      const remainingQuota = Math.round((userToken.maxRPD - todayUsage) * 100) / 100;
+      // Check if entire ancestor chain has enough quota for this request
+      // For sub-keys, validate all ancestors; for master keys, just validate self
+      if (userToken.keyType === "sub") {
+        const quotaValidation = await storage.validateAncestorChainQuota(userToken.id, requestCost);
+        if (!quotaValidation.valid) {
+          return res.status(429).json({
+            error: quotaValidation.reason,
+            details: {
+              required: requestCost,
+              insufficientToken: quotaValidation.insufficientToken,
+            }
+          });
+        }
+      } else {
+        // For master keys, check only this token
+        const todayUsage = await storage.getTodayUsageCount(userToken.id);
+        const remainingQuota = Math.round((userToken.maxRPD - todayUsage) * 100) / 100;
 
-      if (remainingQuota < requestCost) {
-        return res.status(429).json({ 
-          error: "Daily quota is insufficient",
-          details: {
-            required: requestCost,
-            remaining: remainingQuota,
-            maxRPD: userToken.maxRPD,
-            used: todayUsage
-          }
-        });
+        if (remainingQuota < requestCost) {
+          return res.status(429).json({
+            error: "Daily quota is insufficient",
+            details: {
+              required: requestCost,
+              remaining: remainingQuota,
+              maxRPD: userToken.maxRPD,
+              used: todayUsage
+            }
+          });
+        }
       }
 
       const apiKey = await storage.getNextApiKey(provider.id);

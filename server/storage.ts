@@ -66,6 +66,7 @@ export interface IStorage {
   getTotalAllocatedQuota(parentTokenId: string): Promise<{ rpd: number; rpm: number }>;
   canCreateSubKey(parentTokenId: string, requestedRPD: number, requestedRPM: number): Promise<{ valid: boolean; reason?: string }>;
   validateAncestorChain(tokenId: string): Promise<{ valid: boolean; reason?: string }>;
+  validateAncestorChainQuota(tokenId: string, requestCost: number): Promise<{ valid: boolean; reason?: string; insufficientToken?: string }>;
   createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void>;
   cascadeDeleteSubKeys(parentTokenId: string): Promise<number>;
 
@@ -480,6 +481,31 @@ export class JSONStorage implements IStorage {
           return {
             valid: false,
             reason: `Rate limit exceeded for ${token.keyType === "master" ? "master key" : "parent sub-key"}: ${token.name}`,
+          };
+        }
+      }
+
+      return { valid: true };
+    } catch (error: any) {
+      return { valid: false, reason: error.message };
+    }
+  }
+
+  // Check if entire ancestor chain has enough quota for the request cost
+  async validateAncestorChainQuota(tokenId: string, requestCost: number): Promise<{ valid: boolean; reason?: string; insufficientToken?: string }> {
+    try {
+      const chain = await this.getAncestorChain(tokenId);
+
+      // Check each token in the chain has enough remaining quota
+      for (const token of chain) {
+        const todayUsage = await this.getTodayUsageCount(token.id);
+        const remainingQuota = Math.round((token.maxRPD - todayUsage) * 100) / 100;
+
+        if (remainingQuota < requestCost) {
+          return {
+            valid: false,
+            reason: `Insufficient quota in ${token.keyType === "master" ? "master key" : "ancestor sub-key"}: ${token.name}`,
+            insufficientToken: token.name,
           };
         }
       }
