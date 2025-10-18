@@ -1048,6 +1048,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Track tokens for streaming (will be approximate or from final chunk)
         let totalTokens = 0;
+        let streamedContent = ""; // Collect streamed content for estimation
+        let streamOutputTokens = 0; // Track output tokens from usage data
+        let streamInputTokens = 0; // Track input tokens from usage data
 
         // Pipe the streaming response
         const reader = response.body.getReader();
@@ -1059,7 +1062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (done) break;
             
             const chunk = decoder.decode(value, { stream: true });
-            
+
             // Try to extract token usage from SSE chunks if available
             if (chunk.includes('"usage"')) {
               try {
@@ -1068,8 +1071,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   if (line.startsWith('data: ') && !line.includes('[DONE]')) {
                     const jsonStr = line.slice(6);
                     const parsed = JSON.parse(jsonStr);
-                    if (parsed.usage?.total_tokens) {
-                      totalTokens = parsed.usage.total_tokens;
+                    if (parsed.usage) {
+                      // Extract all token fields if available
+                      if (parsed.usage.total_tokens) {
+                        totalTokens = parsed.usage.total_tokens;
+                      }
+                      if (parsed.usage.completion_tokens || parsed.usage.output_tokens) {
+                        streamOutputTokens = parsed.usage.completion_tokens || parsed.usage.output_tokens;
+                      }
+                      if (parsed.usage.prompt_tokens || parsed.usage.input_tokens) {
+                        streamInputTokens = parsed.usage.prompt_tokens || parsed.usage.input_tokens;
+                      }
                     }
                   }
                 }
@@ -1077,14 +1089,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 // Ignore parsing errors for token extraction
               }
             }
-            
+
+            // Extract content for estimation fallback
+            try {
+              const lines = chunk.split('\n');
+              for (const line of lines) {
+                if (line.startsWith('data: ') && !line.includes('[DONE]')) {
+                  const jsonStr = line.slice(6);
+                  const parsed = JSON.parse(jsonStr);
+                  if (parsed.choices && parsed.choices[0]?.delta?.content) {
+                    streamedContent += parsed.choices[0].delta.content;
+                  }
+                }
+              }
+            } catch (e) {
+              // Ignore parsing errors for content extraction
+            }
+
             res.write(value);
           }
         } catch (streamError: any) {
           console.error('Streaming error:', streamError);
         } finally {
           // Calculate output tokens
-          const outputTokens = totalTokens > inputTokens ? totalTokens - inputTokens : 0;
+          let outputTokens = 0;
+          let actualInputTokens = inputTokens;
+
+          // If provider returned token usage in the stream, use it
+          if (streamOutputTokens > 0 || streamInputTokens > 0 || totalTokens > 0) {
+            // Use the values extracted from the stream
+            outputTokens = streamOutputTokens;
+            actualInputTokens = streamInputTokens || inputTokens;
+
+            // If we have total tokens but missing output tokens, calculate it
+            if (outputTokens === 0 && totalTokens > 0) {
+              outputTokens = totalTokens > actualInputTokens ? totalTokens - actualInputTokens : 0;
+            }
+
+            // Recalculate total if needed
+            if (totalTokens === 0 && outputTokens > 0) {
+              totalTokens = actualInputTokens + outputTokens;
+            }
+          } else {
+            // Fallback: estimate from streamed content if provider didn't return usage
+            console.log(`[${requestId}] Provider didn't return token usage in stream, estimating from content`);
+
+            if (streamedContent) {
+              outputTokens = estimateTokens(streamedContent);
+              totalTokens = actualInputTokens + outputTokens;
+
+              console.log(`[${requestId}] Estimated tokens - Input: ${actualInputTokens}, Output: ${outputTokens}, Total: ${totalTokens}`);
+            } else {
+              // If we couldn't collect content, at least record input tokens
+              totalTokens = actualInputTokens;
+              console.log(`[${requestId}] Could not estimate output tokens, recording input tokens only: ${actualInputTokens}`);
+            }
+          }
 
           // Track usage for streaming with pre-calculated cost
           // For sub-keys, create usage records for entire ancestor chain
@@ -1093,7 +1153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               modelId: targetModel.modelId,
               providerId: provider.id,
               tokens: totalTokens,
-              inputTokens: inputTokens,
+              inputTokens: actualInputTokens,
               outputTokens: outputTokens,
               cost: requestCost,
             });
@@ -1104,7 +1164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               modelId: targetModel.modelId,
               providerId: provider.id,
               tokens: totalTokens,
-              inputTokens: inputTokens,
+              inputTokens: actualInputTokens,
               outputTokens: outputTokens,
               cost: requestCost,
             });
@@ -1121,8 +1181,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const data = await response.json();
 
         // Track usage with pre-calculated cost
-        const tokens = data.usage?.total_tokens || 0;
-        const outputTokens = tokens > inputTokens ? tokens - inputTokens : 0;
+        let tokens = 0;
+        let outputTokens = 0;
+        let actualInputTokens = inputTokens;
+
+        // Check if provider returns usage info
+        if (data.usage) {
+          // Try to get output tokens directly from completion_tokens or output_tokens
+          outputTokens = data.usage.completion_tokens || data.usage.output_tokens || 0;
+
+          // Get input tokens if available (more accurate than our estimate)
+          actualInputTokens = data.usage.prompt_tokens || data.usage.input_tokens || inputTokens;
+
+          // Get or calculate total tokens
+          tokens = data.usage.total_tokens || (actualInputTokens + outputTokens);
+
+          // If we still don't have output tokens but have total, calculate it
+          if (outputTokens === 0 && tokens > 0) {
+            outputTokens = tokens > actualInputTokens ? tokens - actualInputTokens : 0;
+          }
+        }
+
+        // If no usage data at all, fallback to estimation
+        if (tokens === 0 && outputTokens === 0) {
+          // Fallback: estimate tokens from response content if provider doesn't return usage
+          console.log(`[${requestId}] Provider didn't return token usage, estimating from response content`);
+
+          // Estimate output tokens from the response content
+          if (data.choices && data.choices[0]?.message?.content) {
+            outputTokens = estimateTokens(data.choices[0].message.content);
+          }
+
+          // Calculate total tokens
+          tokens = actualInputTokens + outputTokens;
+
+          console.log(`[${requestId}] Estimated tokens - Input: ${actualInputTokens}, Output: ${outputTokens}, Total: ${tokens}`);
+        }
 
         // For sub-keys, create usage records for entire ancestor chain
         if (userToken.keyType === "sub") {
@@ -1130,7 +1224,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             modelId: targetModel.modelId,
             providerId: provider.id,
             tokens,
-            inputTokens: inputTokens,
+            inputTokens: actualInputTokens,
             outputTokens: outputTokens,
             cost: requestCost,
           });
@@ -1141,7 +1235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             modelId: targetModel.modelId,
             providerId: provider.id,
             tokens,
-            inputTokens: inputTokens,
+            inputTokens: actualInputTokens,
             outputTokens: outputTokens,
             cost: requestCost,
           });
