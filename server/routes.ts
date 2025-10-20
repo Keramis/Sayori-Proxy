@@ -194,7 +194,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const updatedToken = await storage.updateUserToken(userToken.id, { name });
-      res.json({ success: true, name: updatedToken.name });
+      if (updatedToken)
+        res.json({ success: true, name: updatedToken.name });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

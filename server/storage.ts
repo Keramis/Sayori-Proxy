@@ -439,8 +439,17 @@ export class JSONStorage implements IStorage {
 
     const allocated = await this.getTotalAllocatedQuota(parentTokenId);
 
-    const newTotalRPD = allocated.rpd + requestedRPD;
-    const newTotalRPM = allocated.rpm + requestedRPM;
+    // tooru how did you not check for this shit bro
+    if (requestedRPD <= 0 || requestedRPM <= 0) {
+      return {
+        valid: false,
+        reason: "Cannot set zero or negative values for RPD or RPM!"
+      };
+    }
+
+    // extra check because fuck you
+    const newTotalRPD = allocated.rpd + Math.abs(requestedRPD);
+    const newTotalRPM = allocated.rpm + Math.abs(requestedRPM);
 
     if (newTotalRPD > parent.maxRPD) {
       return {
