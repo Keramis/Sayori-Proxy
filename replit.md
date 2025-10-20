@@ -73,7 +73,7 @@ Preferred communication style: Simple, everyday language.
 - Provider-specific access control with quota protection (errors don't deduct quota)
 - Custom header injection per provider
 - Configurable cache discount toggle per provider
-- Auto-refreshing token statistics (3-second interval)
+- Auto-refreshing token statistics (10-second interval)
 
 ### Data Storage Solutions
 

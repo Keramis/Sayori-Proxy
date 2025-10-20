@@ -1268,7 +1268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const interval = setInterval(async () => {
       const stats = await storage.getStats();
       ws.send(JSON.stringify(stats));
-    }, 1000);
+    }, 10000);
 
     ws.on("close", () => {
       clearInterval(interval);
