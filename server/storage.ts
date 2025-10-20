@@ -430,11 +430,23 @@ export class JSONStorage implements IStorage {
     };
   }
 
+  isStrictNumber(value: any): boolean {
+    return typeof value === 'number' && !Number.isNaN(value);
+  }
+
   // Validate if a parent can create a sub-key with given quotas
   async canCreateSubKey(parentTokenId: string, requestedRPD: number, requestedRPM: number): Promise<{ valid: boolean; reason?: string }> {
     const parent = await this.getUserTokenById(parentTokenId);
     if (!parent) {
       return { valid: false, reason: "Parent token not found" };
+    }
+
+    //tooru how did you not check for this part 2
+    if (!this.isStrictNumber(requestedRPD) || this.isStrictNumber(requestedRPM)) {
+      return {
+        valid: false,
+        reason: "Dude please stop trying to fuck up our service dawg"
+      };
     }
 
     const allocated = await this.getTotalAllocatedQuota(parentTokenId);
