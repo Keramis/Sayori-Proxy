@@ -10,6 +10,43 @@ import {
   insertModelSchema,
   insertUserTokenSchema,
 } from "@shared/schema";
+import { rateLimit } from 'express-rate-limit';
+
+/* DEFINING RATE LIMIT FUNCITONS UP IN HERE */
+const adminLoginRateLimit = rateLimit({
+  windowMs: 60 * 1_000, //1min
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${req.ip} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  },
+});
+const adminApiRateLimit = rateLimit({
+  windowMs: 60 * 1_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${req.ip} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  },
+});
+const subKeyRateLimit = rateLimit({
+  windowMs: 5 * 1_000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${req.ip} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  },
+});
+
 
 // Middleware for admin authentication
 function adminAuth(req: Request, res: Response, next: Function) {
@@ -100,8 +137,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Public routes
   
+
   // Admin login
-  app.post("/api/admin/login", async (req, res) => {
+  app.post("/api/admin/login", adminLoginRateLimit, async (req, res) => {
     const { username, password } = req.body;
     const creds = await storage.getAdminCredentials();
 
@@ -115,6 +153,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(401).json({ error: "Invalid credentials" });
     }
   });
+
+  app.use('/api/admin', adminApiRateLimit);
 
   // Get stats (public)
   app.get("/api/stats", async (req, res) => {
@@ -392,7 +432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create sub-key
-  app.post("/api/user/sub-keys", async (req, res) => {
+  app.post("/api/user/sub-keys", subKeyRateLimit, async (req, res) => {
     const { token, name, maxRPD, maxRPM, allowedProviders, expiresAt } = req.body;
 
     if (!token) {
