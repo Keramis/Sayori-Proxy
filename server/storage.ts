@@ -442,7 +442,7 @@ export class JSONStorage implements IStorage {
     }
 
     //tooru how did you not check for this part 2
-    if (!this.isStrictNumber(requestedRPD) || this.isStrictNumber(requestedRPM)) {
+    if (!this.isStrictNumber(requestedRPD) || !this.isStrictNumber(requestedRPM)) {
       return {
         valid: false,
         reason: "Dude please stop trying to fuck up our service dawg"
