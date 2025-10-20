@@ -68,35 +68,43 @@ export interface Database {
   generalPassword?: string;
 }
 
-// Encryption constants (must match server/storage.ts)
-const FIXED_IV = '0123456789abcdef';
-const FIXED_SALT = 'salt';
+// Encryption constants
 const KEY_LENGTH = 32;
+const OLD_FIXED_IV = '0123456789abcdef'; // For backwards compatibility
 
 /**
  * Derives the encryption key from the password using scrypt
  * @param password - The DB_ENCRYPTION_KEY value from .env
+ * @param salt - The SCRYPT_SALT value from .env
  * @returns Buffer containing the derived encryption key
  */
-export function deriveKey(password: string): Buffer {
-  return scryptSync(password, FIXED_SALT, KEY_LENGTH);
+export function deriveKey(password: string, salt: string): Buffer {
+  return scryptSync(password, salt, KEY_LENGTH);
 }
 
 /**
  * Decrypts an encrypted hex string using AES-256-CBC
- * @param encryptedHex - The encrypted data in hex format
+ * @param encryptedText - The encrypted data in hex format (can be new iv:data format or old format)
  * @param encryptionKey - The derived encryption key (Buffer)
  * @returns Decrypted string
  */
-export function decryptData(encryptedHex: string, encryptionKey: Buffer): string {
+export function decryptData(encryptedText: string, encryptionKey: Buffer): string {
   try {
-    const iv = Buffer.from(FIXED_IV);
-    const decipher = createDecipheriv('aes-256-cbc', encryptionKey, iv);
-
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-
-    return decrypted;
+    const parts = encryptedText.split(':');
+    if (parts.length === 2 && parts[0].length === 32) { // New format: IV:Ciphertext
+      const iv = Buffer.from(parts[0], 'hex');
+      const encryptedData = parts[1];
+      const decipher = createDecipheriv('aes-256-cbc', encryptionKey, iv);
+      let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    } else { // Old format: Just Ciphertext with fixed IV
+      const iv = Buffer.from(OLD_FIXED_IV);
+      const decipher = createDecipheriv('aes-256-cbc', encryptionKey, iv);
+      let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    }
   } catch (error) {
     throw new Error(`Decryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -106,10 +114,11 @@ export function decryptData(encryptedHex: string, encryptionKey: Buffer): string
  * Decrypts the database.json file and parses it as JSON
  * @param encryptedData - The encrypted hex string from database.json
  * @param password - The DB_ENCRYPTION_KEY value from .env
+ * @param salt - The SCRYPT_SALT value from .env
  * @returns Parsed database object
  */
-export function decryptDatabase(encryptedData: string, password: string): Database {
-  const encryptionKey = deriveKey(password);
+export function decryptDatabase(encryptedData: string, password: string, salt: string): Database {
+  const encryptionKey = deriveKey(password, salt);
   const decryptedJson = decryptData(encryptedData, encryptionKey);
 
   try {
@@ -122,10 +131,11 @@ export function decryptDatabase(encryptedData: string, password: string): Databa
 /**
  * Loads and decrypts the database.json file from disk
  * @param password - The DB_ENCRYPTION_KEY value from .env
+ * @param salt - The SCRYPT_SALT value from .env
  * @param dbPath - Optional custom path to database.json (defaults to ./database.json from cwd)
  * @returns Parsed database object
  */
-export function loadDatabase(password: string, dbPath?: string): Database {
+export function loadDatabase(password: string, salt: string, dbPath?: string): Database {
   const databasePath = dbPath || path.join(process.cwd(), 'database.json');
 
   if (!fs.existsSync(databasePath)) {
@@ -138,43 +148,26 @@ export function loadDatabase(password: string, dbPath?: string): Database {
     throw new Error('Database file is empty');
   }
 
-  return decryptDatabase(encryptedData, password);
+  return decryptDatabase(encryptedData, password, salt);
 }
 
 /**
  * Convenience function to load database using environment variable
- * Requires DB_ENCRYPTION_KEY to be set in process.env
+ * Requires DB_ENCRYPTION_KEY and SCRYPT_SALT to be set in process.env
  * @param dbPath - Optional custom path to database.json
  * @returns Parsed database object
  */
 export function loadDatabaseFromEnv(dbPath?: string): Database {
   const password = process.env.DB_ENCRYPTION_KEY;
+  const salt = process.env.SCRYPT_SALT;
 
   if (!password) {
     throw new Error('DB_ENCRYPTION_KEY environment variable is not set');
   }
+  if (!salt) {
+    throw new Error('SCRYPT_SALT environment variable is not set');
+  }
 
-  return loadDatabase(password, dbPath);
+  return loadDatabase(password, salt, dbPath);
 }
 
-// Example usage (commented out)
-/*
-// Method 1: Using environment variable
-import { loadDatabaseFromEnv } from './tools/decryptDB';
-
-const db = loadDatabaseFromEnv();
-console.log('Providers:', db.providers);
-console.log('User Tokens:', db.userTokens);
-
-// Method 2: Using explicit password
-import { loadDatabase } from './tools/decryptDB';
-
-const db = loadDatabase('your-encryption-key-here');
-console.log('Models:', db.models);
-
-// Method 3: Decrypt custom data
-import { decryptDatabase } from './tools/decryptDB';
-
-const encryptedData = 'abc123...'; // hex string
-const db = decryptDatabase(encryptedData, 'your-key');
-*/

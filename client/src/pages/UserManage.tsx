@@ -179,13 +179,11 @@ export default function UserManage() {
 
     setIsCreatingSubKey(true);
     try {
-      let tokenData = await api.getUserManageData(token);
-      let gotProviders = tokenData.token.allowedProviders;
       await api.createSubKey(token, {
         name: subKeyName.trim(),
         maxRPD: rpd,
         maxRPM: rpm,
-        allowedProviders: gotProviders,
+        allowedProviders: data.token.allowedProviderIds,
         expiresAt: subKeyExpiration ? new Date(subKeyExpiration).getTime() : undefined,
       });
 

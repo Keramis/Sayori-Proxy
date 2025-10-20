@@ -12,9 +12,10 @@ import {
   Stats,
   AdminCredentials,
 } from "@shared/schema";
-import { randomUUID, createCipheriv, createDecipheriv, scryptSync } from "crypto";
+import { randomUUID, createCipheriv, createDecipheriv, scryptSync, randomBytes } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
+import "dotenv";
 
 const DB_FILE = path.join(process.cwd(), "database.json");
 
@@ -99,9 +100,9 @@ export class JSONStorage implements IStorage {
   private encryptionKey: Buffer | null = null;
 
   constructor() {
-    // Initialize encryption key from environment
     if (process.env.DB_ENCRYPTION_KEY) {
-      this.encryptionKey = scryptSync(process.env.DB_ENCRYPTION_KEY, 'salt', 32);
+      const salt = process.env.SCRYPT_SALT || 'salt';
+      this.encryptionKey = scryptSync(process.env.DB_ENCRYPTION_KEY, salt, 32);
     }
     this.db = this.loadDatabase();
   }
@@ -109,25 +110,35 @@ export class JSONStorage implements IStorage {
   private encrypt(text: string): string {
     if (!this.encryptionKey) return text;
     
-    const iv = Buffer.from('0123456789abcdef'); // Fixed IV for simplicity
+    const iv = randomBytes(16);
     const cipher = createCipheriv('aes-256-cbc', this.encryptionKey, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    return encrypted;
+    return iv.toString('hex') + ':' + encrypted;
   }
 
-  private decrypt(encrypted: string): string {
-    if (!this.encryptionKey) return encrypted;
+  private decrypt(encryptedText: string): string {
+    if (!this.encryptionKey) return encryptedText;
     
     try {
-      const iv = Buffer.from('0123456789abcdef');
-      const decipher = createDecipheriv('aes-256-cbc', this.encryptionKey, iv);
-      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
-      return decrypted;
+      const parts = encryptedText.split(':');
+      if (parts.length === 2 && parts[0].length === 32) {
+        const iv = Buffer.from(parts[0], 'hex');
+        const encryptedData = parts[1];
+        const decipher = createDecipheriv('aes-256-cbc', this.encryptionKey, iv);
+        let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+      } else {
+        const iv = Buffer.from('0123456789abcdef');
+        const decipher = createDecipheriv('aes-256-cbc', this.encryptionKey, iv);
+        let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+      }
     } catch (error) {
-      console.error("Decryption failed, data might not be encrypted:", error);
-      return encrypted;
+      console.error("Decryption failed, data might be corrupted or key is wrong:", error);
+      return encryptedText;
     }
   }
 
@@ -135,18 +146,15 @@ export class JSONStorage implements IStorage {
     try {
       if (fs.existsSync(DB_FILE)) {
         const data = fs.readFileSync(DB_FILE, "utf8");
-        // Check if file is not empty before parsing
         if (data.trim()) {
           const decryptedData = this.decrypt(data);
           const db = JSON.parse(decryptedData);
-          // Ensure authMode exists for backward compatibility
           if (!db.authMode) {
             db.authMode = (process.env.AUTH_MODE as "user_tokens" | "general_password" | "no_auth") || "user_tokens";
           }
           if (!db.generalPassword && process.env.GENERAL_PASSWORD) {
             db.generalPassword = process.env.GENERAL_PASSWORD;
           }
-          // Migrate existing usage records to include inputTokens and outputTokens
           if (db.usageRecords && Array.isArray(db.usageRecords)) {
             db.usageRecords = db.usageRecords.map((record: any) => {
               if (record.inputTokens === undefined || record.outputTokens === undefined) {
@@ -159,18 +167,14 @@ export class JSONStorage implements IStorage {
               return record;
             });
           }
-          // Migrate existing user tokens to include keyType and parentTokenId
           if (db.userTokens && Array.isArray(db.userTokens)) {
             db.userTokens = db.userTokens.map((token: any) => {
-              // Add keyType if missing (default to master for existing tokens)
               if (!token.keyType) {
                 token.keyType = "master";
               }
-              // Ensure parentTokenId exists (undefined for master keys)
               if (token.parentTokenId === undefined) {
                 token.parentTokenId = undefined;
               }
-              // Add disabled field if missing (default to false)
               if (token.disabled === undefined) {
                 token.disabled = false;
               }
@@ -184,7 +188,6 @@ export class JSONStorage implements IStorage {
       console.error("Error loading database:", error);
     }
 
-    // Default database - admin credentials are read from .env, not stored here
     const defaultDb: Database = {
       providers: [],
       apiKeys: [],
@@ -195,7 +198,6 @@ export class JSONStorage implements IStorage {
       generalPassword: process.env.GENERAL_PASSWORD,
     };
 
-    // Save the default database to file
     this.db = defaultDb;
     this.saveDatabase();
 
@@ -464,7 +466,7 @@ export class JSONStorage implements IStorage {
     const newTotalRPM = allocated.rpm + Math.abs(requestedRPM);
 
     if (newTotalRPD > parent.maxRPD) {
-      return {
+      return { 
         valid: false,
         reason: `Exceeds parent RPD limit. Available: ${parent.maxRPD - allocated.rpd}, Requested: ${requestedRPD}`,
       };
@@ -727,3 +729,4 @@ export class JSONStorage implements IStorage {
 }
 
 export const storage = new JSONStorage();
+

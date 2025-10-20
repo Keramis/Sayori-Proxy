@@ -31,7 +31,7 @@ export function UserTokenOverview() {
     queryKey: ["/api/token/stats", token],
     queryFn: () => api.getTokenStats(token),
     enabled: shouldFetch && token.length > 0,
-    refetchInterval: shouldFetch ? 3000 : false,
+    refetchInterval: shouldFetch ? 10000 : false,
     retry: false,
   });
 
@@ -185,7 +185,7 @@ export function UserTokenOverview() {
         </CardTitle>
         <CardDescription className="flex items-center gap-2">
           <RefreshCw className="h-3 w-3 animate-spin" />
-          Auto-refreshing every 3 seconds
+          Auto-refreshing every 10 seconds
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
