@@ -404,7 +404,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // Validate quota
-    const validation = await storage.canCreateSubKey(parentToken.id, maxRPD, maxRPM);
+    const numericRPD = typeof maxRPD === 'string' ? parseFloat(maxRPD) : maxRPD;
+    const numericRPM = typeof maxRPM === 'string' ? parseFloat(maxRPM) : maxRPM;
+
+    const validation = await storage.canCreateSubKey(parentToken.id, numericRPD, numericRPM);
     if (!validation.valid) {
       return res.status(400).json({ error: validation.reason });
     }
@@ -417,8 +420,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const subKey = await storage.createUserToken({
         name,
-        maxRPD,
-        maxRPM,
+        maxRPD: numericRPD,
+        maxRPM: numericRPM,
         allowedProviders,
         parentTokenId: parentToken.id,
         keyType: "sub",
