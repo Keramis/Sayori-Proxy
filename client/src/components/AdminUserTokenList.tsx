@@ -43,7 +43,20 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     setEditingToken(token);
     setEditMaxRPD(token.maxRPD.toString());
     setEditMaxRPM(token.maxRPM.toString());
-    setEditAllowedProviders(token.allowedProviders || []);
+
+    // Create a map of provider names to IDs for easy lookup
+    const providerNameToIdMap = providers.reduce((acc: any, p: any) => {
+      acc[p.name.toLowerCase()] = p.id;
+      return acc;
+    }, {});
+
+    // Normalize the allowedProviders to ensure they are all IDs
+    const providerIds = (token.allowedProviders || []).map((item: string) => {
+      // If the item is a name, convert it to an ID. Otherwise, assume it's already an ID.
+      return providerNameToIdMap[item.toLowerCase()] || item;
+    });
+
+    setEditAllowedProviders(providerIds);
   };
 
   const closeEditDialog = () => {
@@ -140,8 +153,7 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
                     variant="ghost"
                     size="sm"
                     onClick={() => copyToken(token.token)}
-                    data-testid={`button-copy-${token.id}`}
-                  >
+                    data-testid={`button-copy-${token.id}`}>
                     <Copy className="h-3 w-3" />
                   </Button>
                 </div>
@@ -152,16 +164,14 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
                   variant="ghost"
                   size="icon"
                   onClick={() => openEditDialog(token)}
-                  data-testid={`button-edit-token-${token.id}`}
-                >
+                  data-testid={`button-edit-token-${token.id}`}>
                   <Edit className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => deleteToken(token.id)}
-                  data-testid={`button-delete-token-${token.id}`}
-                >
+                  data-testid={`button-delete-token-${token.id}`}>
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
               </div>
@@ -267,3 +277,4 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     </div>
   );
 }
+

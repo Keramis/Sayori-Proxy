@@ -357,6 +357,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const subKeysWithUsage = await Promise.all(
         subKeys.map(async (subKey) => {
           const subKeyUsage = await storage.getTodayUsageCount(subKey.id);
+          const subKeyProviderIds = subKey.allowedProviders || [];
+          const subKeyProviderNames = subKeyProviderIds.map(id => providerMap[id] || id);
+
           return {
             id: subKey.id,
             name: subKey.name,
@@ -369,7 +372,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             createdAt: subKey.createdAt,
             expiresAt: subKey.expiresAt,
             disabled: subKey.disabled || false,
-            allowedProviders: subKey.allowedProviders || [],
+            allowedProviders: subKeyProviderNames, // Array of names for display
+            allowedProviderIds: subKeyProviderIds, // Array of IDs for logic
           };
         })
       );
