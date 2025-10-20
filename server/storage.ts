@@ -15,6 +15,7 @@ import {
 import { randomUUID, createCipheriv, createDecipheriv, scryptSync } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
+import "dotenv";
 
 const DB_FILE = path.join(process.cwd(), "database.json");
 
@@ -98,6 +99,7 @@ export class JSONStorage implements IStorage {
   private startTime: number = Date.now();
   private encryptionKey: Buffer | null = null;
 
+  //TODO: move salt and len from embedded to env
   constructor() {
     // Initialize encryption key from environment
     if (process.env.DB_ENCRYPTION_KEY) {

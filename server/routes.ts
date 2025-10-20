@@ -349,6 +349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           keyType: userToken.keyType,
           parentTokenId: userToken.parentTokenId,
           allowedProviders: allowedProviderNames,
+          allowedProviderIds: userToken.allowedProviders || [],
         },
         // Current usage
         usage: {
