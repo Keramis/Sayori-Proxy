@@ -1197,7 +1197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Track usage for streaming with pre-calculated cost
           // For sub-keys, create usage records for entire ancestor chain
-          if (userToken.keyType === "sub") {
+          if (userToken.parentTokenId) {
             await storage.createUsageRecordForChain(userToken.id, {
               modelId: targetModel.modelId,
               providerId: provider.id,
