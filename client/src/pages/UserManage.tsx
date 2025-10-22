@@ -543,18 +543,22 @@ export default function UserManage() {
               <div className="text-sm text-muted-foreground mb-1">Max Requests Per Minute</div>
               <div className="font-semibold text-sm md:text-base">{data.token.maxRPM}</div>
             </div>
-            {data.token.allowedProviders && data.token.allowedProviders.length > 0 && (
-              <div className="md:col-span-2">
-                <div className="text-sm text-muted-foreground mb-2">Allowed Providers</div>
-                <div className="flex flex-wrap gap-2">
-                  {data.token.allowedProviders.map((provider: string) => (
+            <div className="md:col-span-2">
+              <div className="text-sm text-muted-foreground mb-2">Allowed Providers</div>
+              <div className="flex flex-wrap gap-2">
+                {data.token.allowedProviders && data.token.allowedProviders.length > 0 ? (
+                  data.token.allowedProviders.map((provider: string) => (
                     <Badge key={provider} variant="secondary" className="text-xs">
                       {provider}
                     </Badge>
-                  ))}
-                </div>
+                  ))
+                ) : (
+                  <Badge variant="default" className="text-xs">
+                    All providers
+                  </Badge>
+                )}
               </div>
-            )}
+            </div>
           </CardContent>
         </Card>
 

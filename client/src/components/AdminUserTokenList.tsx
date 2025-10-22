@@ -203,7 +203,7 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
       {/* Filter Section */}
       <Card className="p-4">
         <h3 className="font-semibold mb-4">Filter Tokens</h3>
-        
+
         {/* Search */}
         <div className="mb-4">
           <Label htmlFor="token-search">Search by Name or Token</Label>
@@ -528,4 +528,3 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     </div>
   );
 }
-
