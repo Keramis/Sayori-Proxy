@@ -361,6 +361,8 @@ export class JSONStorage implements IStorage {
       ...userToken,
       keyType: userToken.keyType || "master",
       disabled: userToken.disabled || false,
+      sigmaBoy: userToken.sigmaBoy || false,
+      maxSubKeys: userToken.maxSubKeys || 20,
       token,
       createdAt: Date.now(),
     };
@@ -441,6 +443,25 @@ export class JSONStorage implements IStorage {
     const parent = await this.getUserTokenById(parentTokenId);
     if (!parent) {
       return { valid: false, reason: "Parent token not found" };
+    }
+
+    // Check if parent has Sigma Boy tier (required to create sub-keys)
+    if (!parent.sigmaBoy) {
+      return {
+        valid: false,
+        reason: "Only Sigma Boy tier tokens can create sub-keys"
+      };
+    }
+
+    // Check sub-key count limit
+    const existingSubKeys = await this.getSubKeys(parentTokenId);
+    const maxSubKeys = parent.maxSubKeys || 20;
+    
+    if (existingSubKeys.length >= maxSubKeys) {
+      return {
+        valid: false,
+        reason: `Sub-key limit reached. Maximum allowed: ${maxSubKeys}`
+      };
     }
 
     //tooru how did you not check for this part 2

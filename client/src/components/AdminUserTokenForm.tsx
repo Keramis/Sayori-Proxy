@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
@@ -18,6 +19,8 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
   const [maxRPD, setMaxRPD] = useState("");
   const [maxRPM, setMaxRPM] = useState("");
   const [allowedProviders, setAllowedProviders] = useState<string[]>([]);
+  const [sigmaBoy, setSigmaBoy] = useState(false);
+  const [maxSubKeys, setMaxSubKeys] = useState("20");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
@@ -36,6 +39,8 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
         maxRPD: parseInt(maxRPD),
         maxRPM: parseInt(maxRPM),
         allowedProviders: allowedProviders.length > 0 ? allowedProviders : undefined,
+        sigmaBoy,
+        maxSubKeys: parseInt(maxSubKeys),
       });
 
       toast({
@@ -59,6 +64,8 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
       setMaxRPD("");
       setMaxRPM("");
       setAllowedProviders([]);
+      setSigmaBoy(false);
+      setMaxSubKeys("20");
     } catch (error: any) {
       toast({
         title: "Error",
@@ -113,6 +120,43 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
               min="1"
             />
           </div>
+        </div>
+
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="sigma-boy">Sigma Boy Tier</Label>
+              <p className="text-sm text-muted-foreground">
+                Enable to allow this token to create sub-keys
+              </p>
+            </div>
+            <Switch
+              id="sigma-boy"
+              checked={sigmaBoy}
+              onCheckedChange={setSigmaBoy}
+              data-testid="switch-sigma-boy"
+            />
+          </div>
+
+          {sigmaBoy && (
+            <div className="space-y-2">
+              <Label htmlFor="max-sub-keys">Max Sub-key Creation</Label>
+              <Input
+                id="max-sub-keys"
+                type="number"
+                placeholder="20"
+                value={maxSubKeys}
+                onChange={(e) => setMaxSubKeys(e.target.value)}
+                data-testid="input-max-sub-keys"
+                required
+                min="2"
+                step="1"
+              />
+              <p className="text-sm text-muted-foreground">
+                Maximum number of sub-keys this token can create (min: 2)
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-3">

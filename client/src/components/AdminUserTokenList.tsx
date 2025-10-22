@@ -16,6 +16,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 interface AdminUserTokenListProps {
   authToken: string;
@@ -27,6 +29,8 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
   const [editMaxRPD, setEditMaxRPD] = useState("");
   const [editMaxRPM, setEditMaxRPM] = useState("");
   const [editAllowedProviders, setEditAllowedProviders] = useState<string[]>([]);
+  const [editSigmaBoy, setEditSigmaBoy] = useState(false);
+  const [editMaxSubKeys, setEditMaxSubKeys] = useState("20");
   const [editLoading, setEditLoading] = useState(false);
 
   const { data: tokens = [], isLoading } = useQuery({
@@ -43,6 +47,8 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     setEditingToken(token);
     setEditMaxRPD(token.maxRPD.toString());
     setEditMaxRPM(token.maxRPM.toString());
+    setEditSigmaBoy(token.sigmaBoy || false);
+    setEditMaxSubKeys((token.maxSubKeys || 20).toString());
 
     // Create a map of provider names to IDs for easy lookup
     const providerNameToIdMap = providers.reduce((acc: any, p: any) => {
@@ -64,6 +70,8 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     setEditMaxRPD("");
     setEditMaxRPM("");
     setEditAllowedProviders([]);
+    setEditSigmaBoy(false);
+    setEditMaxSubKeys("20");
   };
 
   const handleUpdateToken = async () => {
@@ -75,6 +83,8 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
         maxRPD: parseInt(editMaxRPD),
         maxRPM: parseInt(editMaxRPM),
         allowedProviders: editAllowedProviders,
+        sigmaBoy: editSigmaBoy,
+        maxSubKeys: parseInt(editMaxSubKeys),
       });
 
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tokens"] });
@@ -142,9 +152,16 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-lg mb-1" data-testid={`token-name-${token.id}`}>
-                  {token.name}
-                </h3>
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <h3 className="font-semibold text-lg" data-testid={`token-name-${token.id}`}>
+                    {token.name}
+                  </h3>
+                  {token.sigmaBoy && (
+                    <Badge variant="secondary" data-testid={`badge-sigma-boy-${token.id}`}>
+                      Sigma Boy
+                    </Badge>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <code className="text-sm font-mono bg-muted px-2 py-1 rounded break-all" data-testid={`token-value-${token.id}`}>
                     {token.token}
@@ -184,8 +201,13 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
                 </div>
                 <Progress value={(token.usedRPD / token.maxRPD) * 100} className="h-2" />
               </div>
-              <div>
+              <div className="space-y-1">
                 <div className="text-sm text-muted-foreground">Max RPM: {token.maxRPM}</div>
+                {token.sigmaBoy && (
+                  <div className="text-sm text-muted-foreground" data-testid={`text-max-subkeys-${token.id}`}>
+                    Max Sub-keys: {token.maxSubKeys || 20}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -227,6 +249,42 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
                   min="1"
                 />
               </div>
+            </div>
+
+            <div className="space-y-4 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="edit-sigma-boy">Sigma Boy Tier</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Enable to allow this token to create sub-keys
+                  </p>
+                </div>
+                <Switch
+                  id="edit-sigma-boy"
+                  checked={editSigmaBoy}
+                  onCheckedChange={setEditSigmaBoy}
+                  data-testid="switch-edit-sigma-boy"
+                />
+              </div>
+
+              {editSigmaBoy && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-max-sub-keys">Max Sub-key Creation</Label>
+                  <Input
+                    id="edit-max-sub-keys"
+                    type="number"
+                    value={editMaxSubKeys}
+                    onChange={(e) => setEditMaxSubKeys(e.target.value)}
+                    data-testid="input-edit-max-sub-keys"
+                    required
+                    min="2"
+                    step="1"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Maximum number of sub-keys this token can create (min: 2)
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-3">

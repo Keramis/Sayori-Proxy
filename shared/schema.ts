@@ -68,6 +68,8 @@ export interface UserToken {
   keyType: "master" | "sub"; // Type of key
   expiresAt?: number; // Expiration timestamp (undefined = never expires)
   disabled?: boolean; // If true, the key is disabled (default: false)
+  sigmaBoy?: boolean; // If true, allows creating sub-keys (default: false for "regular" tier)
+  maxSubKeys?: number; // Maximum number of sub-keys that can be created (default: 20 for Sigma Boy)
 }
 
 export const insertUserTokenSchema = z.object({
@@ -79,6 +81,8 @@ export const insertUserTokenSchema = z.object({
   keyType: z.enum(["master", "sub"]).default("master"),
   expiresAt: z.number().optional(),
   disabled: z.boolean().optional(),
+  sigmaBoy: z.boolean().optional(),
+  maxSubKeys: z.number().int().min(2).optional(),
 });
 
 export type InsertUserToken = z.infer<typeof insertUserTokenSchema>;
