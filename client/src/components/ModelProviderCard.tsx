@@ -11,10 +11,15 @@ interface ModelProviderCardProps {
 
 export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }: ModelProviderCardProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
+
+  const filteredModels = models.filter((model) =>
+    model.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <Card className="overflow-hidden">
@@ -26,7 +31,7 @@ export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }
         <div className="flex items-center gap-3">
           <h3 className="text-lg font-semibold">{provider}</h3>
           <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
-            {models.length}
+            {searchQuery ? `${filteredModels.length}/${models.length}` : models.length}
           </Badge>
         </div>
         {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
@@ -34,7 +39,16 @@ export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }
       
       {isExpanded && (
         <div className="p-4 space-y-2 bg-muted/30">
-          {models.map((model, index) => (
+          <input
+            type="text"
+            placeholder="Search models in this provider..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+          {filteredModels.length > 0 ? (
+            filteredModels.map((model, index) => (
             <button
               key={index}
               onClick={() => copyToClipboard(`${model} (${provider})`)}
@@ -44,7 +58,12 @@ export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }
             >
               {model} ({provider})
             </button>
-          ))}
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No models found matching "{searchQuery}"
+            </p>
+          )}
         </div>
       )}
     </Card>

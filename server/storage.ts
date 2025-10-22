@@ -178,6 +178,19 @@ export class JSONStorage implements IStorage {
               if (token.disabled === undefined) {
                 token.disabled = false;
               }
+              // Backward compatibility: all master keys become Sigma Boy tier
+              if (token.keyType === "master" && token.sigmaBoy === undefined) {
+                token.sigmaBoy = true;
+                token.maxSubKeys = token.maxSubKeys || 20;
+              }
+              // For sub-keys, preserve existing sigmaBoy setting or default to false
+              if (token.keyType === "sub" && token.sigmaBoy === undefined) {
+                token.sigmaBoy = false;
+              }
+              // Ensure maxSubKeys is set for all Sigma Boy keys
+              if (token.sigmaBoy && !token.maxSubKeys) {
+                token.maxSubKeys = 20;
+              }
               return token;
             });
           }

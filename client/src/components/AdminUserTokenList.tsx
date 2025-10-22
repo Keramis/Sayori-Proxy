@@ -33,6 +33,15 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
   const [editMaxSubKeys, setEditMaxSubKeys] = useState("20");
   const [editLoading, setEditLoading] = useState(false);
 
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterSigmaBoy, setFilterSigmaBoy] = useState(false);
+  const [filterMasterKeys, setFilterMasterKeys] = useState(false);
+  const [filterSubKeys, setFilterSubKeys] = useState(false);
+  const [filterTemporaryKeys, setFilterTemporaryKeys] = useState(false);
+  const [filterDisabledKeys, setFilterDisabledKeys] = useState(false);
+  const [filterProviders, setFilterProviders] = useState<string[]>([]);
+
   const { data: tokens = [], isLoading } = useQuery({
     queryKey: ["/api/admin/tokens"],
     queryFn: () => api.getUserTokens(authToken),
@@ -41,6 +50,47 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
   const { data: providers = [] } = useQuery({
     queryKey: ["/api/admin/providers"],
     queryFn: () => api.getProviders(authToken),
+  });
+
+  // Filter tokens based on all criteria
+  const filteredTokens = tokens.filter((token: any) => {
+    // Search by name or token value
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesName = token.name.toLowerCase().includes(query);
+      const matchesToken = token.token.toLowerCase().includes(query);
+      if (!matchesName && !matchesToken) return false;
+    }
+
+    // Filter by Sigma Boy
+    if (filterSigmaBoy && !token.sigmaBoy) return false;
+
+    // Filter by Master Keys
+    if (filterMasterKeys && token.keyType !== "master") return false;
+
+    // Filter by Sub Keys
+    if (filterSubKeys && token.keyType !== "sub") return false;
+
+    // Filter by Temporary Keys (has expiration date)
+    if (filterTemporaryKeys && !token.expiresAt) return false;
+
+    // Filter by Disabled Keys
+    if (filterDisabledKeys && !token.disabled) return false;
+
+    // Filter by Provider Access
+    if (filterProviders.length > 0) {
+      const tokenProviders = token.allowedProviders || [];
+      // If token has no restrictions (empty allowedProviders), it has access to all
+      if (tokenProviders.length === 0) {
+        // Only show if "All Providers" is selected (we'll handle this specially)
+        return false;
+      }
+      // Check if token has access to any of the selected providers
+      const hasAccess = filterProviders.some(pid => tokenProviders.includes(pid));
+      if (!hasAccess) return false;
+    }
+
+    return true;
   });
 
   const openEditDialog = (token: any) => {
@@ -145,9 +195,150 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     );
   }
 
+  const hasActiveFilters = searchQuery || filterSigmaBoy || filterMasterKeys || 
+    filterSubKeys || filterTemporaryKeys || filterDisabledKeys || filterProviders.length > 0;
+
   return (
-    <div className="space-y-3">
-      {tokens.map((token: any) => (
+    <div className="space-y-4">
+      {/* Filter Section */}
+      <Card className="p-4">
+        <h3 className="font-semibold mb-4">Filter Tokens</h3>
+        
+        {/* Search */}
+        <div className="mb-4">
+          <Label htmlFor="token-search">Search by Name or Token</Label>
+          <Input
+            id="token-search"
+            placeholder="Search tokens..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="mt-1"
+          />
+        </div>
+
+        {/* Filter Checkboxes */}
+        <div className="space-y-3 mb-4">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="filter-sigma-boy"
+              checked={filterSigmaBoy}
+              onCheckedChange={(checked) => setFilterSigmaBoy(!!checked)}
+            />
+            <label htmlFor="filter-sigma-boy" className="text-sm font-medium cursor-pointer">
+              Sigma Boy Keys
+            </label>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="filter-master-keys"
+              checked={filterMasterKeys}
+              onCheckedChange={(checked) => setFilterMasterKeys(!!checked)}
+            />
+            <label htmlFor="filter-master-keys" className="text-sm font-medium cursor-pointer">
+              Master Keys
+            </label>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="filter-sub-keys"
+              checked={filterSubKeys}
+              onCheckedChange={(checked) => setFilterSubKeys(!!checked)}
+            />
+            <label htmlFor="filter-sub-keys" className="text-sm font-medium cursor-pointer">
+              Sub Keys
+            </label>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="filter-temporary-keys"
+              checked={filterTemporaryKeys}
+              onCheckedChange={(checked) => setFilterTemporaryKeys(!!checked)}
+            />
+            <label htmlFor="filter-temporary-keys" className="text-sm font-medium cursor-pointer">
+              Temporary Keys (with expiration)
+            </label>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="filter-disabled-keys"
+              checked={filterDisabledKeys}
+              onCheckedChange={(checked) => setFilterDisabledKeys(!!checked)}
+            />
+            <label htmlFor="filter-disabled-keys" className="text-sm font-medium cursor-pointer">
+              Disabled Keys
+            </label>
+          </div>
+        </div>
+
+        {/* Provider Filter */}
+        {providers.length > 0 && (
+          <div className="space-y-2">
+            <Label>Filter by Provider Access</Label>
+            <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
+              {providers.map((provider: any) => (
+                <div key={provider.id} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`filter-provider-${provider.id}`}
+                    checked={filterProviders.includes(provider.id)}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setFilterProviders([...filterProviders, provider.id]);
+                      } else {
+                        setFilterProviders(filterProviders.filter(id => id !== provider.id));
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor={`filter-provider-${provider.id}`}
+                    className="text-sm font-medium cursor-pointer"
+                  >
+                    {provider.name}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Clear Filters */}
+        {hasActiveFilters && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4 w-full"
+            onClick={() => {
+              setSearchQuery("");
+              setFilterSigmaBoy(false);
+              setFilterMasterKeys(false);
+              setFilterSubKeys(false);
+              setFilterTemporaryKeys(false);
+              setFilterDisabledKeys(false);
+              setFilterProviders([]);
+            }}
+          >
+            Clear All Filters
+          </Button>
+        )}
+      </Card>
+
+      {/* Results Count */}
+      <div className="text-sm text-muted-foreground">
+        Showing {filteredTokens.length} of {tokens.length} tokens
+        {hasActiveFilters && " (filtered)"}
+      </div>
+
+      {/* Token List */}
+      {filteredTokens.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          No tokens match the current filters.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredTokens.map((token: any) => (
         <Card key={token.id} className="p-4">
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -212,7 +403,9 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
             </div>
           </div>
         </Card>
-      ))}
+          ))}
+        </div>
+      )}
 
       <Dialog open={!!editingToken} onOpenChange={(open) => !open && closeEditDialog()}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">

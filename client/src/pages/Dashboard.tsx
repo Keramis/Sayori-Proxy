@@ -43,6 +43,8 @@ export default function Dashboard() {
     uptime: 0,
   });
 
+  const [globalModelSearch, setGlobalModelSearch] = useState("");
+
   const { data: providers = [] } = useQuery({
     queryKey: ["/api/providers/public"],
     queryFn: api.getPublicProviders,
@@ -56,6 +58,20 @@ export default function Dashboard() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
+
+  // Filter providers based on global search
+  const filteredProviders = providers.map((provider: any) => {
+    if (!globalModelSearch) return provider;
+    
+    const filteredModels = provider.models.filter((m: any) =>
+      m.modelId.toLowerCase().includes(globalModelSearch.toLowerCase())
+    );
+    
+    return {
+      ...provider,
+      models: filteredModels,
+    };
+  }).filter((p: any) => p.models.length > 0);
 
   // WebSocket for real-time stats with HTTP polling fallback
   useEffect(() => {
@@ -211,17 +227,34 @@ export default function Dashboard() {
         {/* Available Models Section */}
         {providers.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-2xl font-semibold mb-6 text-primary">Available Models</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {providers.map((provider: any, index: number) => (
-                <ModelProviderCard
-                  key={provider.id}
-                  provider={provider.name}
-                  color={providerColors[index % providerColors.length]}
-                  models={provider.models.map((m: any) => m.modelId)}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+              <h2 className="text-2xl font-semibold text-primary">Available Models</h2>
+              <div className="w-full sm:w-64">
+                <input
+                  type="text"
+                  placeholder="Search all models..."
+                  value={globalModelSearch}
+                  onChange={(e) => setGlobalModelSearch(e.target.value)}
+                  className="w-full px-4 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
-              ))}
+              </div>
             </div>
+            {filteredProviders.length > 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {filteredProviders.map((provider: any, index: number) => (
+                  <ModelProviderCard
+                    key={provider.id}
+                    provider={provider.name}
+                    color={providerColors[index % providerColors.length]}
+                    models={provider.models.map((m: any) => m.modelId)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground py-8">
+                No models found matching "{globalModelSearch}"
+              </p>
+            )}
           </div>
         )}
       </main>
