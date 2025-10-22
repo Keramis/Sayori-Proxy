@@ -80,10 +80,10 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     // Filter by Provider Access
     if (filterProviders.length > 0) {
       const tokenProviders = token.allowedProviders || [];
-      // If token has no restrictions (empty allowedProviders), it has access to all
+      // If token has no restrictions (empty allowedProviders), it has access to all providers
+      // So it should always be included when filtering by specific providers
       if (tokenProviders.length === 0) {
-        // Only show if "All Providers" is selected (we'll handle this specially)
-        return false;
+        return true; // Include tokens with access to all providers
       }
       // Check if token has access to any of the selected providers
       const hasAccess = filterProviders.some(pid => tokenProviders.includes(pid));
@@ -352,6 +352,11 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
                       Sigma Boy
                     </Badge>
                   )}
+                  {token.keyType === "sub" && (
+                    <Badge variant="outline" data-testid={`badge-sub-key-${token.id}`}>
+                      Sub-Key
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <code className="text-sm font-mono bg-muted px-2 py-1 rounded break-all" data-testid={`token-value-${token.id}`}>
@@ -398,6 +403,27 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
                   <div className="text-sm text-muted-foreground" data-testid={`text-max-subkeys-${token.id}`}>
                     Max Sub-keys: {token.maxSubKeys || 20}
                   </div>
+                )}
+              </div>
+            </div>
+
+            {/* Provider Access Display */}
+            <div className="mt-3">
+              <div className="text-sm text-muted-foreground mb-2">Allowed Providers</div>
+              <div className="flex flex-wrap gap-2">
+                {token.allowedProviders && token.allowedProviders.length > 0 ? (
+                  token.allowedProviders.map((providerId: string) => {
+                    const provider = providers.find((p: any) => p.id === providerId);
+                    return (
+                      <Badge key={providerId} variant="secondary" className="text-xs">
+                        {provider?.name || providerId}
+                      </Badge>
+                    );
+                  })
+                ) : (
+                  <Badge variant="default" className="text-xs">
+                    All providers
+                  </Badge>
                 )}
               </div>
             </div>
