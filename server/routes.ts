@@ -704,14 +704,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No API keys configured" });
       }
 
-      // Normalize base URL - remove trailing slash and /v1 if present
-      let baseUrl = provider.baseUrl.replace(/\/$/, '');
+      // Normalize base URL - remove trailing slash
+      const baseUrl = provider.baseUrl.replace(/\/$/, '');
       
       // Construct the models endpoint URL
-      // If baseUrl already contains /v1, use it as-is, otherwise append /v1
-      const modelsUrl = baseUrl.includes('/v1') 
-        ? `${baseUrl}/models`
-        : `${baseUrl}/v1/models`;
+      const modelsUrl = `${baseUrl}/models`;
 
       console.log(`Fetching models from: ${modelsUrl}`);
 
