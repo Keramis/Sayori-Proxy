@@ -750,20 +750,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Sort model IDs alphabetically
       const sortedModelIds = modelIds.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
-      // Delete existing models for this provider
-      await storage.deleteModelsByProvider(provider.id);
-
-      // Create new models
-      const models = await Promise.all(
-        sortedModelIds.map((modelId: string) =>
-          storage.createModel({
-            providerId: provider.id,
-            modelId,
-            enabled: true,
-            requestCost: 1,
-          })
-        )
-      );
+      // Replace all models for the provider in a single operation
+      const models = await storage.replaceProviderModels(provider.id, sortedModelIds);
 
       res.json({ models, count: models.length });
     } catch (error: any) {
@@ -788,10 +776,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bulk model operations
   app.post("/api/admin/providers/:id/models/enable-all", adminAuth, async (req, res) => {
     try {
-      const models = await storage.getModels(req.params.id);
-      await Promise.all(
-        models.map((model) => storage.updateModel(model.id, { enabled: true }))
-      );
+      const models = await storage.enableAllModelsByProvider(req.params.id);
       res.json({ success: true, count: models.length });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -800,10 +785,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/providers/:id/models/disable-all", adminAuth, async (req, res) => {
     try {
-      const models = await storage.getModels(req.params.id);
-      await Promise.all(
-        models.map((model) => storage.updateModel(model.id, { enabled: false }))
-      );
+      const models = await storage.disableAllModelsByProvider(req.params.id);
       res.json({ success: true, count: models.length });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -816,10 +798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!requestCost || requestCost < 1) {
         return res.status(400).json({ error: "Invalid request cost" });
       }
-      const models = await storage.getModels(req.params.id);
-      await Promise.all(
-        models.map((model) => storage.updateModel(model.id, { requestCost: parseInt(requestCost) }))
-      );
+      const models = await storage.updateCostAllModelsByProvider(req.params.id, parseInt(requestCost));
       res.json({ success: true, count: models.length });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

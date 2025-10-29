@@ -49,8 +49,13 @@ export interface IStorage {
   getModels(providerId?: string): Promise<Model[]>;
   createModel(model: InsertModel): Promise<Model>;
   updateModel(id: string, model: Partial<InsertModel>): Promise<Model | undefined>;
+  updateModelsByProvider(providerId: string, updates: Partial<InsertModel>): Promise<Model[]>;
   deleteModel(id: string): Promise<boolean>;
   deleteModelsByProvider(providerId: string): Promise<void>;
+  replaceProviderModels(providerId: string, modelIds: string[]): Promise<Model[]>;
+  enableAllModelsByProvider(providerId: string): Promise<Model[]>;
+  disableAllModelsByProvider(providerId: string): Promise<Model[]>;
+  updateCostAllModelsByProvider(providerId: string, requestCost: number): Promise<Model[]>;
 
   // User Token methods
   getUserTokens(): Promise<UserToken[]>;
@@ -98,6 +103,14 @@ export class JSONStorage implements IStorage {
   private activeRequests: number = 0;
   private startTime: number = Date.now();
   private encryptionKey: Buffer | null = null;
+  
+  private pendingSave: boolean = false;
+  private pendingSaveTimer: NodeJS.Timeout | null = null;
+
+  /**
+   * Governs the save interval for `scheduleSave()`.
+  */
+  private SAVE_INTERVAL: number = 60_000;
 
   constructor() {
     if (process.env.DB_ENCRYPTION_KEY) {
@@ -212,12 +225,17 @@ export class JSONStorage implements IStorage {
     };
 
     this.db = defaultDb;
-    this.saveDatabase();
+    this.forceSave();
 
     return defaultDb;
   }
 
+  /**
+   * Saves the database by stringifying the in-memory JSON, then encrypting
+   * it before writing to a file with `writeFileSync`, halting operations.
+   */
   private saveDatabase(): void {
+    console.log('[saveDatabase] called!');
     try {
       const jsonData = JSON.stringify(this.db, null, 2);
       const encryptedData = this.encrypt(jsonData);
@@ -225,6 +243,43 @@ export class JSONStorage implements IStorage {
     } catch (error) {
       console.error("Error saving database:", error);
     }
+    console.log('[saveDatabase] success!');
+  }
+
+  /**
+   * Schedules a save to be completed in the database. Since the database
+   * that's being used is always in-memory, this will not interfere with stats
+   * and normal operations; rather, just the file backup.
+   * 
+   * Delays saving by up to `SAVE_INTERVAL`.
+   */
+  private scheduleSave(): void {
+    if (this.pendingSave) return; //already scheduled, don't fuck it up!
+    console.log("[scheduleSave] running...");
+
+    this.pendingSave = true; //lock
+    this.pendingSaveTimer = setTimeout( () => {
+      this.saveDatabase();
+      this.pendingSaveTimer = null;
+      this.pendingSave = false;
+      console.log("[scheduleSave] done!");
+    }, this.SAVE_INTERVAL);
+  }
+
+  /**
+   * Forces a save to be completed, clearing the `pendingSaveTimer` used in
+   * `scheduleSave` to not overrun the database. Used in administrator
+   * operations.
+   */
+  private forceSave(): void {
+    console.log("[forceSave] running...");
+    if (this.pendingSaveTimer) {
+      clearTimeout(this.pendingSaveTimer); //not going to save twice
+      this.pendingSaveTimer = null;
+      this.pendingSave = false;
+    }
+    console.log("[forceSave] done!");
+    this.saveDatabase();
   }
 
   // Provider methods
@@ -243,7 +298,7 @@ export class JSONStorage implements IStorage {
       createdAt: Date.now(),
     };
     this.db.providers.push(newProvider);
-    this.saveDatabase();
+    this.forceSave();
     return newProvider;
   }
 
@@ -252,7 +307,7 @@ export class JSONStorage implements IStorage {
     if (index === -1) return undefined;
 
     this.db.providers[index] = { ...this.db.providers[index], ...provider };
-    this.saveDatabase();
+    this.forceSave();
     return this.db.providers[index];
   }
 
@@ -261,7 +316,7 @@ export class JSONStorage implements IStorage {
     this.db.providers = this.db.providers.filter((p) => p.id !== id);
     this.db.apiKeys = this.db.apiKeys.filter((k) => k.providerId !== id);
     this.db.models = this.db.models.filter((m) => m.providerId !== id);
-    this.saveDatabase();
+    this.forceSave();
     return this.db.providers.length < initialLength;
   }
 
@@ -278,14 +333,14 @@ export class JSONStorage implements IStorage {
       requestCount: 0,
     };
     this.db.apiKeys.push(newKey);
-    this.saveDatabase();
+    this.forceSave();
     return newKey;
   }
 
   async deleteApiKey(id: string): Promise<boolean> {
     const initialLength = this.db.apiKeys.length;
     this.db.apiKeys = this.db.apiKeys.filter((k) => k.id !== id);
-    this.saveDatabase();
+    this.forceSave();
     return this.db.apiKeys.length < initialLength;
   }
 
@@ -293,7 +348,7 @@ export class JSONStorage implements IStorage {
     const apiKey = this.db.apiKeys.find((k) => k.id === id);
     if (!apiKey) return undefined;
     apiKey.key = key;
-    this.saveDatabase();
+    this.forceSave();
     return apiKey;
   }
 
@@ -310,7 +365,7 @@ export class JSONStorage implements IStorage {
     if (key) {
       key.lastUsed = Date.now();
       key.requestCount++;
-      this.saveDatabase();
+      this.scheduleSave();
     }
   }
 
@@ -329,7 +384,7 @@ export class JSONStorage implements IStorage {
       requestCost: model.requestCost || 1,
     };
     this.db.models.push(newModel);
-    this.saveDatabase();
+    this.forceSave();
     return newModel;
   }
 
@@ -338,20 +393,68 @@ export class JSONStorage implements IStorage {
     if (index === -1) return undefined;
 
     this.db.models[index] = { ...this.db.models[index], ...model };
-    this.saveDatabase();
+    this.forceSave();
     return this.db.models[index];
   }
 
   async deleteModel(id: string): Promise<boolean> {
     const initialLength = this.db.models.length;
     this.db.models = this.db.models.filter((m) => m.id !== id);
-    this.saveDatabase();
+    this.forceSave();
     return this.db.models.length < initialLength;
   }
 
   async deleteModelsByProvider(providerId: string): Promise<void> {
     this.db.models = this.db.models.filter((m) => m.providerId !== providerId);
-    this.saveDatabase();
+    this.forceSave();
+  }
+
+  async replaceProviderModels(providerId: string, modelIds: string[]): Promise<Model[]> {
+    // Delete existing models for this provider
+    this.db.models = this.db.models.filter((m) => m.providerId !== providerId);
+
+    // Create new models
+    const newModels: Model[] = modelIds.map((modelId) => ({
+      id: randomUUID(),
+      providerId: providerId,
+      modelId: modelId,
+      enabled: true,
+      requestCost: 1,
+    }));
+
+    this.db.models.push(...newModels);
+    this.forceSave();
+    return newModels;
+  }
+
+  async updateModelsByProvider(providerId: string, updates: Partial<InsertModel>): Promise<Model[]> {
+    const updatedModels: Model[] = [];
+    for (const model of this.db.models) {
+      if (model.providerId === providerId) {
+        const index = this.db.models.findIndex((m) => m.id === model.id);
+        if (index !== -1) {
+          this.db.models[index] = { ...this.db.models[index], ...updates };
+          updatedModels.push(this.db.models[index]);
+        }
+      }
+    }
+    this.scheduleSave();
+    return updatedModels;
+  }
+
+  // Enable all models for a provider
+  async enableAllModelsByProvider(providerId: string): Promise<Model[]> {
+    return this.updateModelsByProvider(providerId, { enabled: true });
+  }
+
+  // Disable all models for a provider  
+  async disableAllModelsByProvider(providerId: string): Promise<Model[]> {
+    return this.updateModelsByProvider(providerId, { enabled: false });
+  }
+
+  // Update cost for all models for a provider
+  async updateCostAllModelsByProvider(providerId: string, requestCost: number): Promise<Model[]> {
+    return this.updateModelsByProvider(providerId, { requestCost });
   }
 
   // User Token methods
@@ -380,7 +483,7 @@ export class JSONStorage implements IStorage {
       createdAt: Date.now(),
     };
     this.db.userTokens.push(newToken);
-    this.saveDatabase();
+    this.scheduleSave();
     return newToken;
   }
 
@@ -389,14 +492,14 @@ export class JSONStorage implements IStorage {
     if (index === -1) return undefined;
 
     this.db.userTokens[index] = { ...this.db.userTokens[index], ...userToken };
-    this.saveDatabase();
+    this.scheduleSave();
     return this.db.userTokens[index];
   }
 
   async deleteUserToken(id: string): Promise<boolean> {
     const initialLength = this.db.userTokens.length;
     this.db.userTokens = this.db.userTokens.filter((t) => t.id !== id);
-    this.saveDatabase();
+    this.scheduleSave();
     return this.db.userTokens.length < initialLength;
   }
 
@@ -688,7 +791,7 @@ export class JSONStorage implements IStorage {
       timestamp: Date.now(),
     };
     this.db.usageRecords.push(newRecord);
-    this.saveDatabase();
+    this.scheduleSave();
     return newRecord;
   }
 
