@@ -235,6 +235,7 @@ export class JSONStorage implements IStorage {
    * it before writing to a file with `writeFileSync`, halting operations.
    */
   private saveDatabase(): void {
+    console.log('[saveDatabase] called!');
     try {
       const jsonData = JSON.stringify(this.db, null, 2);
       const encryptedData = this.encrypt(jsonData);
@@ -242,6 +243,7 @@ export class JSONStorage implements IStorage {
     } catch (error) {
       console.error("Error saving database:", error);
     }
+    console.log('[saveDatabase] success!');
   }
 
   /**
