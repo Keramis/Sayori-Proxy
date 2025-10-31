@@ -464,6 +464,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "Parent token is required" });
     }
 
+    // validate name
+    if (!name || (!(checkStringValidity(name).valid)) || name.length > 50) {
+      return res.status(400).json({error: "Name has to be valid and below 50 characters!"});
+    }
+
     const parentToken = await storage.getUserToken(token);
     if (!parentToken) {
       return res.status(404).json({ error: "Parent token not found" });
