@@ -11,6 +11,7 @@ import {
   insertUserTokenSchema,
 } from "@shared/schema";
 import { rateLimit } from 'express-rate-limit';
+import { checkStringValidity } from '../tools/utils';
 
 /* DEFINING RATE LIMIT FUNCITONS UP IN HERE */
 const adminLoginRateLimit = rateLimit({
@@ -46,6 +47,17 @@ const subKeyRateLimit = rateLimit({
     res.status(options.statusCode).send(options.message);
   },
 });
+const subkeyRenameRateLimit = rateLimit({
+  windowMs: 10 * 1_000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${req.ip} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  },
+})
 
 
 // Middleware for admin authentication
@@ -220,11 +232,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User token update name
-  app.patch("/api/token/update-name", async (req, res) => {
+  app.patch("/api/token/update-name", subkeyRenameRateLimit, async (req, res) => {
     const { token, name } = req.body;
 
     if (!token || !name) {
       return res.status(400).json({ error: "Token and name are required" });
+    }
+
+    const nameValidation = checkStringValidity(name);
+    if (!nameValidation.valid) {
+      return res.status(400).json({error: nameValidation.error});
+    }
+
+    if (name.length > 50) {
+      return res.status(400).json({error: "Name cannot be greater than 50 characters"});
     }
 
     const userToken = await storage.getUserToken(token);
