@@ -11,7 +11,7 @@ import {
   insertUserTokenSchema,
 } from "@shared/schema";
 import { rateLimit } from 'express-rate-limit';
-import { checkStringValidity } from '../tools/utils';
+import { checkStringValidity, getClientIP } from '../tools/utils';
 
 /* DEFINING RATE LIMIT FUNCITONS UP IN HERE */
 const adminLoginRateLimit = rateLimit({
@@ -21,7 +21,7 @@ const adminLoginRateLimit = rateLimit({
   legacyHeaders: false,
   message: "Too many requests!",
   handler: (req, res, next, options) => {
-    console.error(`Rate limit triggered for IP ${req.ip} on route: ${req.originalUrl}`);
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   },
 });
@@ -32,7 +32,7 @@ const adminApiRateLimit = rateLimit({
   legacyHeaders: false,
   message: "Too many requests!",
   handler: (req, res, next, options) => {
-    console.error(`Rate limit triggered for IP ${req.ip} on route: ${req.originalUrl}`);
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   },
 });
@@ -43,7 +43,7 @@ const subKeyRateLimit = rateLimit({
   legacyHeaders: false,
   message: "Too many requests!",
   handler: (req, res, next, options) => {
-    console.error(`Rate limit triggered for IP ${req.ip} on route: ${req.originalUrl}`);
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   },
 });
@@ -54,7 +54,7 @@ const subkeyRenameRateLimit = rateLimit({
   legacyHeaders: false,
   message: "Too many requests!",
   handler: (req, res, next, options) => {
-    console.error(`Rate limit triggered for IP ${req.ip} on route: ${req.originalUrl}`);
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   },
 })
@@ -872,6 +872,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const success = await storage.deleteUserToken(req.params.id);
     res.json({ success });
   });
+
+  app.get("/api/debug/ip", (req, res) => {
+    res.json({
+      cfConnectingIP: req.get('cf-connecting-ip'),
+      forwardedFor: req.get('x-forwarded-for'),
+      realIP: req.get('x-real-ip'),
+      clientIP: req.get('x-client-ip'),
+      reqIP: req.ip,
+      detectedIP: getClientIP(req),
+      userAgent: req.get('user-agent'),
+      cloudflare: {
+        ray: req.get('cf-ray'),
+        country: req.get('cf-ipcountry'),
+        colo: req.get('cf-colo')
+      }
+    });
+  });
+
 
   // OpenAI-compatible endpoints
 
