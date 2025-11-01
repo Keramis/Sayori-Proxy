@@ -27,6 +27,8 @@ interface Database {
   usageRecords: UsageRecord[];
   authMode: "user_tokens" | "general_password" | "no_auth";
   generalPassword?: string;
+  totalTokensAll: number; // bandaid
+  totalRequestsAll: number; // bandaid
 }
 
 export interface IStorage {
@@ -207,6 +209,16 @@ export class JSONStorage implements IStorage {
               return token;
             });
           }
+
+          // bandaid code to stop database hemmoraging for now
+          if (db.totalTokensAll === undefined) {
+            db.totalTokensAll = db.usageRecords.reduce(
+              (sum, r) => sum + (r.tokens || 0), 0);
+          }
+          if (db.totalRequestsAll === undefined) {
+            db.totalRequestsAll = db.usageRecords.length;
+          }
+
           return db;
         }
       }
@@ -222,6 +234,8 @@ export class JSONStorage implements IStorage {
       usageRecords: [],
       authMode: (process.env.AUTH_MODE as "user_tokens" | "general_password" | "no_auth") || "user_tokens",
       generalPassword: process.env.GENERAL_PASSWORD,
+      totalTokensAll: 0, // bandaid
+      totalRequestsAll: 0 // bandaid
     };
 
     this.db = defaultDb;
@@ -791,6 +805,11 @@ export class JSONStorage implements IStorage {
       timestamp: Date.now(),
     };
     this.db.usageRecords.push(newRecord);
+
+    // update bandaid
+    this.db.totalTokensAll += newRecord.tokens || 0; // bandaid
+    this.db.totalRequestsAll += 1; // bandaid
+
     this.scheduleSave();
     return newRecord;
   }
@@ -822,13 +841,13 @@ export class JSONStorage implements IStorage {
 
   // Stats methods
   async getStats(): Promise<Stats> {
-    const totalTokens = this.db.usageRecords.reduce((sum, r) => sum + r.tokens, 0);
-    const totalRequests = this.db.usageRecords.length;
+    // const totalTokens = this.db.usageRecords.reduce((sum, r) => sum + r.tokens, 0);
+    // const totalRequests = this.db.usageRecords.length;
     const uptime = Math.floor((Date.now() - this.startTime) / 1000);
     
     return {
-      totalTokens,
-      totalRequests,
+      totalTokens: this.db.totalTokensAll, // bandaid
+      totalRequests: this.db.totalRequestsAll, // bandaid
       activeRequests: this.activeRequests,
       successRate: 100, // Can be calculated based on error tracking
       uptime,
