@@ -58,6 +58,17 @@ const subkeyRenameRateLimit = rateLimit({
     res.status(options.statusCode).send(options.message);
   },
 })
+const chatCompletionsRateLimit = rateLimit({
+  windowMs: 5 * 1_000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggerd for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  }
+})
 
 
 // Middleware for admin authentication
@@ -935,7 +946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Chat completions proxy
-  app.post("/v1/chat/completions", flexibleAuth, async (req, res) => {
+  app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req, res) => {
     try {
       const userToken = (req as any).userToken;
       const { model, temperature, max_tokens, top_p, ...otherParams } = req.body;
