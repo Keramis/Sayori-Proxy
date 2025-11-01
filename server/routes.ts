@@ -59,7 +59,7 @@ const subkeyRenameRateLimit = rateLimit({
   },
 })
 const chatCompletionsRateLimit = rateLimit({
-  windowMs: 5 * 1_000,
+  windowMs: 1 * 1_000,
   max: 1,
   standardHeaders: true,
   legacyHeaders: false,
