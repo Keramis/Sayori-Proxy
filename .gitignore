@@ -6,3 +6,6 @@ vite.config.ts.*
 *.tar.gz
 .env
 database.json
+database.sqlite
+database.sqlite-shm
+database.sqlite-wal

@@ -217,10 +217,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const usageRecords = await storage.getUsageRecords(userToken.id);
     const todayUsage = await storage.getTodayUsageCount(userToken.id);
 
-    // Calculate model usage
+    // Calculate model usage with display names
     const modelUsage: Record<string, number> = {};
+    
+    // Get all models to create a mapping from model UUID to display name
+    const allModels = await storage.getModels();
+    const modelMap = allModels.reduce((acc, model) => {
+      acc[model.id] = model.modelId; // Map UUID to display name - WARNING! THIS IS A ONE TIME RUN FFS
+      return acc;
+    }, {} as Record<string, string>);
+    
     usageRecords.forEach((record) => {
-      modelUsage[record.modelId] = (modelUsage[record.modelId] || 0) + 1;
+      const displayName = modelMap[record.modelId] || record.modelId; // Fallback to UUID if not found
+      modelUsage[displayName] = (modelUsage[displayName] || 0) + 1;
     });
 
     const lastUsed = usageRecords.length > 0
@@ -301,15 +310,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? Math.max(...usageRecords.map((r) => r.timestamp))
         : 0;
 
-      // Calculate model usage breakdown
+      // Calculate model usage breakdown with display names
       const modelUsage: Record<string, { count: number; totalTokens: number; totalCost: number }> = {};
+      
+      // Get all models to create a mapping from model UUID to display name
+      const allModels = await storage.getModels();
+      const modelMap = allModels.reduce((acc, model) => {
+        acc[model.id] = model.modelId; // Map UUID to display name
+        return acc;
+      }, {} as Record<string, string>);
+      
       usageRecords.forEach((record) => {
-        if (!modelUsage[record.modelId]) {
-          modelUsage[record.modelId] = { count: 0, totalTokens: 0, totalCost: 0 };
+        const displayName = modelMap[record.modelId] || record.modelId; // Fallback to UUID if not found
+        if (!modelUsage[displayName]) {
+          modelUsage[displayName] = { count: 0, totalTokens: 0, totalCost: 0 };
         }
-        modelUsage[record.modelId].count++;
-        modelUsage[record.modelId].totalTokens += record.tokens || 0;
-        modelUsage[record.modelId].totalCost += record.cost || 1;
+        modelUsage[displayName].count++;
+        modelUsage[displayName].totalTokens += record.tokens || 0;
+        modelUsage[displayName].totalCost += record.cost || 1;
       });
 
       // Calculate provider usage breakdown
@@ -360,7 +378,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map((record) => ({
           id: record.id,
           timestamp: record.timestamp,
-          modelId: record.modelId,
+          modelId: modelMap[record.modelId] || record.modelId, // Use display name instead of UUID u dumbass, but fallback in case my map stupidity fails
           providerId: record.providerId,
           providerName: providerMap[record.providerId] || "Unknown",
           tokens: record.tokens,
@@ -437,8 +455,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         stats: lifetimeStats,
         // Breakdown
         modelUsage: Object.entries(modelUsage)
-          .map(([model, data]) => ({
-            modelId: model,
+          .map(([displayName, data]) => ({
+            modelId: displayName, // Use display name instead of UUID
             ...data,
           }))
           .sort((a, b) => b.count - a.count),
@@ -947,6 +965,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Chat completions proxy
   app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req, res) => {
+    let responseSent = false;
+    
+    const safeSendError = (statusCode: number, error: string) => {
+      if (!res.headersSent && !responseSent) {
+        responseSent = true;
+        res.status(statusCode).json({ error });
+      } else {
+        console.error(`[ERROR] Cannot send error response - headers already sent: ${error}`);
+      }
+    };
+    
     try {
       const userToken = (req as any).userToken;
       const { model, temperature, max_tokens, top_p, ...otherParams } = req.body;
@@ -958,7 +987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate model parameter
       if (!model || typeof model !== 'string') {
-        return res.status(400).json({ error: "Missing or invalid 'model' parameter" });
+        return safeSendError(400, "Missing or invalid 'model' parameter");
       }
 
       // Find the model and provider
@@ -989,23 +1018,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!targetModel || !provider) {
-        return res.status(404).json({ error: `Model '${model}' not found` });
+        return safeSendError(404, `Model '${model}' not found`);
       }
 
       if (!targetModel.enabled) {
-        return res.status(400).json({ error: `Model '${model}' is disabled` });
+        return safeSendError(400, `Model '${model}' is disabled`);
       }
 
       if (!provider.enabled) {
-        return res.status(400).json({ error: "Provider is disabled" });
+        return safeSendError(400, "Provider is disabled");
+      }
+
+      // Additional validation: Ensure the model and provider still exist in database
+      // this prevents race conditions where records are deleted between lookup and usage
+      try {
+        const modelExists = await storage.getModels(provider.id).then(models =>
+          models.some(m => m.id === targetModel.id)
+        );
+        const providerExists = await storage.getProvider(provider.id);
+        
+        if (!modelExists) {
+          return safeSendError(404, `Model '${model}' no longer exists`);
+        }
+        
+        if (!providerExists) {
+          return safeSendError(404, `Provider for model '${model}' no longer exists`);
+        }
+      } catch (validationError: any) {
+        console.error(`[${requestId}] Validation error:`, validationError.message);
+        return safeSendError(500, "Failed to validate model and provider");
       }
 
       // Check provider access control
       if (userToken.allowedProviders && userToken.allowedProviders.length > 0) {
         if (!userToken.allowedProviders.includes(provider.id)) {
-          return res.status(403).json({
-            error: `You don't have access to ${targetModel.modelId} from ${provider.name}`
-          });
+          return safeSendError(403, `You don't have access to ${targetModel.modelId} from ${provider.name}`);
         }
       }
 
@@ -1016,7 +1063,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (userToken.keyType === "sub") {
         const chainValidation = await storage.validateAncestorChain(userToken.id);
         if (!chainValidation.valid) {
-          return res.status(429).json({ error: chainValidation.reason });
+          return safeSendError(429, chainValidation.reason || "Token validation failed");
         }
       }
 
@@ -1026,11 +1073,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const now = Date.now();
       
       // Clean old cache entries
-      for (const [key, value] of payloadCache.entries()) {
+      payloadCache.forEach((value, key) => {
         if (now - value.timestamp > CACHE_TTL) {
           payloadCache.delete(key);
         }
-      }
+      });
 
       let isCachedRequest = false;
       const cachedEntry = payloadCache.get(cacheKey);
@@ -1050,13 +1097,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (userToken.keyType === "sub") {
         const quotaValidation = await storage.validateAncestorChainQuota(userToken.id, requestCost);
         if (!quotaValidation.valid) {
-          return res.status(429).json({
+          return safeSendError(429, JSON.stringify({
             error: quotaValidation.reason,
             details: {
               required: requestCost,
               insufficientToken: quotaValidation.insufficientToken,
             }
-          });
+          }));
         }
       } else {
         // For master keys, check only this token
@@ -1064,7 +1111,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const remainingQuota = Number((userToken.maxRPD - todayUsage).toFixed(2));
 
         if (remainingQuota < requestCost) {
-          return res.status(429).json({
+          return safeSendError(429, JSON.stringify({
             error: "Daily quota is insufficient",
             details: {
               required: requestCost,
@@ -1072,13 +1119,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               maxRPD: userToken.maxRPD,
               used: todayUsage
             }
-          });
+          }));
         }
       }
 
       const apiKey = await storage.getNextApiKey(provider.id);
       if (!apiKey) {
-        return res.status(500).json({ error: "No API keys available for this provider" });
+        return safeSendError(500, "No API keys available for this provider");
       }
 
       // Update cache and log
@@ -1123,7 +1170,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (!response.body) {
           await storage.decrementActiveRequests();
-          return res.status(500).json({ error: "No response body from provider" });
+          return safeSendError(500, "No response body from provider");
         }
 
         // Track tokens for streaming (will be approximate or from final chunk)
@@ -1230,7 +1277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // For sub-keys, create usage records for entire ancestor chain
           if (userToken.parentTokenId) {
             await storage.createUsageRecordForChain(userToken.id, {
-              modelId: targetModel.modelId,
+              modelId: targetModel.id,
               providerId: provider.id,
               tokens: totalTokens,
               inputTokens: actualInputTokens,
@@ -1239,22 +1286,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           } else {
             // For master keys, create a single usage record
-            await storage.createUsageRecord({
-              userTokenId: userToken.id,
-              modelId: targetModel.modelId,
-              providerId: provider.id,
-              tokens: totalTokens,
-              inputTokens: actualInputTokens,
-              outputTokens: outputTokens,
-              cost: requestCost,
-            });
+            try {
+              await storage.createUsageRecord({
+                userTokenId: userToken.id,
+                modelId: targetModel.id,
+                providerId: provider.id,
+                tokens: totalTokens,
+                inputTokens: actualInputTokens,
+                outputTokens: outputTokens,
+                cost: requestCost,
+              });
+            } catch (usageError: any) {
+              console.error(`[${requestId}] Failed to create usage record:`, usageError.message);
+              // Don't fail the entire request if usage tracking fails
+            }
           }
 
           // Log completed request
           console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${totalTokens} tokens.`);
 
           await storage.decrementActiveRequests();
-          res.end();
+          if (!res.headersSent) {
+            res.end();
+          }
         }
       } else {
         // For non-streaming responses, return JSON as before
@@ -1301,7 +1355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // For sub-keys, create usage records for entire ancestor chain
         if (userToken.keyType === "sub") {
           await storage.createUsageRecordForChain(userToken.id, {
-            modelId: targetModel.modelId,
+            modelId: targetModel.id,
             providerId: provider.id,
             tokens,
             inputTokens: actualInputTokens,
@@ -1310,15 +1364,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         } else {
           // For master keys, create a single usage record
-          await storage.createUsageRecord({
-            userTokenId: userToken.id,
-            modelId: targetModel.modelId,
-            providerId: provider.id,
-            tokens,
-            inputTokens: actualInputTokens,
-            outputTokens: outputTokens,
-            cost: requestCost,
-          });
+          try {
+            await storage.createUsageRecord({
+              userTokenId: userToken.id,
+              modelId: targetModel.id,
+              providerId: provider.id,
+              tokens,
+              inputTokens: actualInputTokens,
+              outputTokens: outputTokens,
+              cost: requestCost,
+            });
+          } catch (usageError: any) {
+            console.error(`[${requestId}] Failed to create usage record:`, usageError.message);
+            // Don't fail the entire request if usage tracking fails
+          }
         }
 
         // Log completed request
@@ -1326,11 +1385,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         await storage.decrementActiveRequests();
 
-        res.json(data);
+        if (!res.headersSent) {
+          res.json(data);
+        }
       }
     } catch (error: any) {
+      console.error(`Request failed:`, error.message);
       await storage.decrementActiveRequests();
-      res.status(500).json({ error: error.message });
+      safeSendError(500, error.message);
     }
   });
 
