@@ -210,10 +210,10 @@ export class JSONStorage implements IStorage {
             });
           }
 
-          // bandaid code to stop database hemmoraging for now
+          // bandaid code to stop database hemmoraging for now - not anymore :sunglasses:
           if (db.totalTokensAll === undefined) {
             db.totalTokensAll = db.usageRecords.reduce(
-              (sum, r) => sum + (r.tokens || 0), 0);
+              (sum: number, r: any) => sum + (r.tokens || 0), 0);
           }
           if (db.totalRequestsAll === undefined) {
             db.totalRequestsAll = db.usageRecords.length;
@@ -884,5 +884,12 @@ export class JSONStorage implements IStorage {
   }
 }
 
-export const storage = new JSONStorage();
+// Import the SQLiteStorage class
+import { SQLiteStorage } from './sqlite-storage';
+
+// Export SQLiteStorage for flexibility
+export { SQLiteStorage } from './sqlite-storage';
+
+// Use SQLiteStorage
+export const storage = new SQLiteStorage();
 
