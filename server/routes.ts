@@ -968,11 +968,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let responseSent = false;
     
     const safeSendError = (statusCode: number, error: string) => {
+      console.log(`[DEBUG] safeSendError called: statusCode=${statusCode}, error="${error}", headersSent=${res.headersSent}, responseSent=${responseSent}`);
       if (!res.headersSent && !responseSent) {
         responseSent = true;
+        console.log(`[DEBUG] Sending error response: ${statusCode} - ${error}`);
         res.status(statusCode).json({ error });
       } else {
         console.error(`[ERROR] Cannot send error response - headers already sent: ${error}`);
+        console.error(`[ERROR] headersSent: ${res.headersSent}, responseSent: ${responseSent}`);
       }
     };
     
@@ -1161,8 +1164,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check if streaming is requested
       const isStreaming = requestBody.stream === true;
+      console.log(`[DEBUG] Streaming requested: ${isStreaming}`);
 
       if (isStreaming) {
+        console.log(`[DEBUG] Setting up streaming response`);
         // For streaming responses, pipe the stream directly to the client
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
@@ -1178,6 +1183,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let streamedContent = ""; // Collect streamed content for estimation
         let streamOutputTokens = 0; // Track output tokens from usage data
         let streamInputTokens = 0; // Track input tokens from usage data
+        
+        // FIX: Track tool calls to handle them properly
+        let hasToolCalls = false;
+        let toolCallChunks: string[] = [];
 
         // Pipe the streaming response
         const reader = response.body.getReader();
@@ -1217,13 +1226,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
 
-            // Extract content for estimation fallback
+            // Extract content and tool calls
             try {
               const lines = chunk.split('\n');
               for (const line of lines) {
                 if (line.startsWith('data: ') && !line.includes('[DONE]')) {
                   const jsonStr = line.slice(6);
                   const parsed = JSON.parse(jsonStr);
+                  
+                  // FIX: Detect and handle tool calls
+                  if (parsed.choices && parsed.choices[0]?.delta?.tool_calls) {
+                    hasToolCalls = true;
+                    console.log(`[DEBUG] Tool call detected in stream:`, JSON.stringify(parsed.choices[0].delta.tool_calls));
+                    toolCallChunks.push(jsonStr);
+                  }
+                  
                   if (parsed.choices && parsed.choices[0]?.delta?.content) {
                     streamedContent += parsed.choices[0].delta.content;
                   }
@@ -1233,7 +1250,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Ignore parsing errors for content extraction
             }
 
+            // FIX: Always forward the chunk to maintain streaming
             res.write(value);
+          }
+          
+          // FIX: For tool calls, ensure proper stream termination
+          if (hasToolCalls) {
+            console.log(`[DEBUG] Tool calls detected, ensuring proper stream termination`);
+            // Send a final [DONE] message if not already present
+            const doneMessage = 'data: [DONE]\n\n';
+            if (!res.headersSent) {
+              res.write(doneMessage);
+            }
           }
         } catch (streamError: any) {
           console.error('Streaming error:', streamError);
@@ -1276,14 +1304,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Track usage for streaming with pre-calculated cost
           // For sub-keys, create usage records for entire ancestor chain
           if (userToken.parentTokenId) {
-            await storage.createUsageRecordForChain(userToken.id, {
-              modelId: targetModel.id,
-              providerId: provider.id,
-              tokens: totalTokens,
-              inputTokens: actualInputTokens,
-              outputTokens: outputTokens,
-              cost: requestCost,
-            });
+            console.log(`[DEBUG] Creating usage record for chain - userToken.parentTokenId exists`);
+            try {
+              await storage.createUsageRecordForChain(userToken.id, {
+                modelId: targetModel.id,
+                providerId: provider.id,
+                tokens: totalTokens,
+                inputTokens: actualInputTokens,
+                outputTokens: outputTokens,
+                cost: requestCost,
+              });
+              console.log(`[DEBUG] Usage record chain created successfully`);
+            } catch (usageError: any) {
+              console.error(`[ERROR] Failed to create usage record chain:`, usageError.message);
+              // Don't fail the entire request if usage tracking fails
+            }
           } else {
             // For master keys, create a single usage record
             try {
@@ -1306,8 +1341,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${totalTokens} tokens.`);
 
           await storage.decrementActiveRequests();
-          if (!res.headersSent) {
+          console.log(`[DEBUG] Ending streaming response, headersSent: ${res.headersSent}, hasToolCalls: ${hasToolCalls}`);
+          
+          // CRITICAL FIX: ALWAYS call res.end() for streaming responses to prevent hanging
+          // Even if headers are sent, we must properly terminate the connection
+          try {
+            console.log(`[DEBUG] Sending res.end() to terminate streaming response`);
             res.end();
+          } catch (e: any) {
+            console.log(`[DEBUG] Stream already ended, ignoring error:`, e.message);
           }
         }
       } else {
@@ -1354,14 +1396,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // For sub-keys, create usage records for entire ancestor chain
         if (userToken.keyType === "sub") {
-          await storage.createUsageRecordForChain(userToken.id, {
-            modelId: targetModel.id,
-            providerId: provider.id,
-            tokens,
-            inputTokens: actualInputTokens,
-            outputTokens: outputTokens,
-            cost: requestCost,
-          });
+          console.log(`[DEBUG] Creating usage record for chain - userToken.keyType === "sub"`);
+          try {
+            await storage.createUsageRecordForChain(userToken.id, {
+              modelId: targetModel.id,
+              providerId: provider.id,
+              tokens,
+              inputTokens: actualInputTokens,
+              outputTokens: outputTokens,
+              cost: requestCost,
+            });
+            console.log(`[DEBUG] Usage record chain created successfully for non-streaming`);
+          } catch (usageError: any) {
+            console.error(`[ERROR] Failed to create usage record chain (non-streaming):`, usageError.message);
+            // Don't fail the entire request if usage tracking fails
+          }
         } else {
           // For master keys, create a single usage record
           try {
@@ -1390,7 +1439,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
     } catch (error: any) {
-      console.error(`Request failed:`, error.message);
+      console.error(`[ERROR] Request failed:`, error.message);
+      console.error(`[ERROR] Error stack:`, error.stack);
       await storage.decrementActiveRequests();
       safeSendError(500, error.message);
     }

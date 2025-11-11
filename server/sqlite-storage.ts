@@ -889,23 +889,26 @@ export class SQLiteStorage implements IStorage {
   }
 
   async createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void> {
-    const transaction = this.db.transaction(async () => {
-      try {
-        const chain = await this.getAncestorChain(tokenId);
+    console.log(`[DEBUG] createUsageRecordForChain called for tokenId: ${tokenId}`);
+    
+    // FIX: Don't use transaction for async operations - handle manually
+    try {
+      console.log(`[DEBUG] Getting ancestor chain for tokenId: ${tokenId}`);
+      const chain = await this.getAncestorChain(tokenId);
+      console.log(`[DEBUG] Found ${chain.length} tokens in ancestor chain`);
 
-        for (const token of chain) {
-          await this.createUsageRecord({
-            ...record,
-            userTokenId: token.id,
-          });
-        }
-      } catch (error) {
-        console.error('Error in createUsageRecordForChain transaction:', error);
-        throw error;
+      for (const token of chain) {
+        console.log(`[DEBUG] Creating usage record for token: ${token.id} (${token.name})`);
+        await this.createUsageRecord({
+          ...record,
+          userTokenId: token.id,
+        });
       }
-    });
-
-    return transaction();
+      console.log(`[DEBUG] Successfully created usage records for chain`);
+    } catch (error) {
+      console.error('[ERROR] Error in createUsageRecordForChain:', error);
+      throw error;
+    }
   }
 
   async cascadeDeleteSubKeys(parentTokenId: string): Promise<number> {
