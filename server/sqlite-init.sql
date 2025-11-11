@@ -135,6 +135,26 @@ BEGIN
     WHERE key = 'total_requests_all';
 END;
 
+CREATE TRIGGER promote_child_usage_on_delete
+BEFORE DELETE ON user_tokens
+FOR EACH ROW
+WHEN OLD.parent_token_id IS NOT NULL
+BEGIN
+    UPDATE usage_records 
+    SET user_token_id = OLD.parent_token_id 
+    WHERE user_token_id = OLD.id;
+END;
+
+CREATE TRIGGER nullify_parent_usage_on_delete
+BEFORE DELETE ON user_tokens
+FOR EACH ROW
+WHEN OLD.parent_token_id IS NULL
+BEGIN
+    UPDATE usage_records 
+    SET user_token_id = NULL 
+    WHERE user_token_id = OLD.id;
+END;
+
 INSERT INTO system_config (key, value, updated_at) VALUES
 ('auth_mode', '"user_tokens"', strftime('%s', 'now')),
 ('general_password', 'NULL', strftime('%s', 'now')),
