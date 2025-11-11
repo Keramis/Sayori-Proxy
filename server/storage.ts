@@ -890,6 +890,6 @@ import { SQLiteStorage } from './sqlite-storage';
 // Export SQLiteStorage for flexibility
 export { SQLiteStorage } from './sqlite-storage';
 
-// Use SQLiteStorage by default, but allow fallback to JSONStorage via environment variable
+// Use SQLiteStorage
 export const storage = new SQLiteStorage();
 
