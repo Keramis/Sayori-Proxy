@@ -61,17 +61,17 @@ CREATE TABLE user_tokens (
 
 CREATE TABLE usage_records (
     id TEXT PRIMARY KEY,
-    user_token_id TEXT NOT NULL,
-    model_id TEXT NOT NULL,
-    provider_id TEXT NOT NULL,
+    user_token_id TEXT,
+    model_id TEXT,
+    provider_id TEXT,
     tokens INTEGER DEFAULT 0,
     input_tokens INTEGER DEFAULT 0,
     output_tokens INTEGER DEFAULT 0,
     timestamp INTEGER NOT NULL, -- unix once again
     cost REAL NOT NULL DEFAULT 1.0,
-    FOREIGN KEY (user_token_id) REFERENCES user_tokens(id) ON DELETE CASCADE,
-    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE,
-    FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
+    FOREIGN KEY (user_token_id) REFERENCES user_tokens(id) ON DELETE SET NULL,
+    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+    FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
 );
 
 CREATE TABLE system_config (

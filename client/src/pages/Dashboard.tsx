@@ -242,15 +242,33 @@ export default function Dashboard() {
               </div>
             </div>
             {filteredProviders.length > 0 ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {filteredProviders.map((provider: any, index: number) => (
-                  <ModelProviderCard
-                    key={provider.id}
-                    provider={provider.name}
-                    color={providerColors[index % providerColors.length]}
-                    models={provider.models.map((m: any) => m.modelId)}
-                  />
-                ))}
+              <div className="flex flex-col lg:flex-row gap-4">
+                <div className="flex-1 space-y-4">
+                  {filteredProviders.filter((_: any, index: number) => index % 2 === 0).map((provider: any) => {
+                    const originalIndex = filteredProviders.indexOf(provider);
+                    return (
+                      <ModelProviderCard
+                        key={provider.id}
+                        provider={provider.name}
+                        color={providerColors[originalIndex % providerColors.length]}
+                        models={provider.models.map((m: any) => m.modelId)}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="flex-1 space-y-4">
+                  {filteredProviders.filter((_: any, index: number) => index % 2 === 1).map((provider: any) => {
+                    const originalIndex = filteredProviders.indexOf(provider);
+                    return (
+                      <ModelProviderCard
+                        key={provider.id}
+                        provider={provider.name}
+                        color={providerColors[originalIndex % providerColors.length]}
+                        models={provider.models.map((m: any) => m.modelId)}
+                      />
+                    );
+                  })}
+                </div>
               </div>
             ) : (
               <p className="text-center text-muted-foreground py-8">

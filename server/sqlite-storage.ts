@@ -33,6 +33,7 @@ export class SQLiteStorage implements IStorage {
     
     // Initialize database
     this.db = new Database(databasePath);
+    this.db.pragma('foreign_keys = ON');
     this.initializeDatabase();
   }
 
@@ -665,8 +666,9 @@ export class SQLiteStorage implements IStorage {
 
   async deleteUserToken(id: string): Promise<boolean> {
     try {
-      const stmt = this.db.prepare('DELETE FROM user_tokens WHERE id = ?');
-      const result = stmt.run(id);
+      // const stmt = this.db.prepare('DELETE FROM user_tokens WHERE id = ?');
+      const stmt = this.db.prepare('UPDATE user_tokens SET deleted_at = ? WHERE id = ?');
+      const result = stmt.run(Date.now(), id);
       return result.changes > 0;
     } catch (error) {
       console.error('Error deleting user token:', error);
