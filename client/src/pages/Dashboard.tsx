@@ -7,6 +7,8 @@ import { UserTokenOverview } from "@/components/UserTokenOverview";
 import { Activity, TrendingUp, Zap, Clock, BarChart3 } from "lucide-react";
 import { api } from "@/lib/api";
 
+const REFRESH_INTERVAL = 3000;
+
 interface Stats {
   totalTokens: number;
   totalRequests: number;
@@ -131,8 +133,8 @@ export default function Dashboard() {
       // Fetch immediately
       fetchStats();
 
-      // Then poll every 10 seconds
-      pollInterval = setInterval(fetchStats, 10000);
+      // Then poll every 3 seconds
+      pollInterval = setInterval(fetchStats, REFRESH_INTERVAL);
     };
 
     // Try WebSocket first, with fallback to polling after 2 seconds if no connection

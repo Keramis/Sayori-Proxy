@@ -17,6 +17,8 @@ import { api } from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useToast } from "@/hooks/use-toast";
 
+const REFRESH_INTERVAL = 3000;
+
 export function UserTokenDialog() {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -30,7 +32,7 @@ export function UserTokenDialog() {
     queryKey: ["/api/token/stats", token],
     queryFn: () => api.getTokenStats(token),
     enabled: shouldFetch && token.length > 0,
-    refetchInterval: shouldFetch ? 10000 : false,
+    refetchInterval: shouldFetch ? REFRESH_INTERVAL : false,
     retry: false,
   });
 
@@ -149,7 +151,7 @@ export function UserTokenDialog() {
               <div className="flex items-center justify-between pb-2">
                 <p className="text-sm text-muted-foreground flex items-center gap-2">
                   <RefreshCw className="h-3 w-3 animate-spin" />
-                  Auto-refreshing every 10 seconds
+                  Auto-refreshing every 3 seconds
                 </p>
               </div>
             <div className="space-y-4 pt-4">

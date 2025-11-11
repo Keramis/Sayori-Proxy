@@ -13,6 +13,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useToast } from "@/hooks/use-toast";
 
 const TOKEN_STORAGE_KEY = "sayori_user_token";
+const REFRESH_INTERVAL = 3000;
 
 export function UserTokenOverview() {
   const { toast } = useToast();
@@ -31,7 +32,7 @@ export function UserTokenOverview() {
     queryKey: ["/api/token/stats", token],
     queryFn: () => api.getTokenStats(token),
     enabled: shouldFetch && token.length > 0,
-    refetchInterval: shouldFetch ? 10000 : false,
+    refetchInterval: shouldFetch ? REFRESH_INTERVAL : false,
     retry: false,
   });
 
@@ -185,7 +186,7 @@ export function UserTokenOverview() {
         </CardTitle>
         <CardDescription className="flex items-center gap-2">
           <RefreshCw className="h-3 w-3 animate-spin" />
-          Auto-refreshing every 10 seconds
+          Auto-refreshing every 3 seconds
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

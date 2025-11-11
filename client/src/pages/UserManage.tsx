@@ -85,11 +85,13 @@ export default function UserManage() {
   const [togglingSubKeyId, setTogglingSubKeyId] = useState<string | null>(null);
   const subKeyFormRef = useRef<HTMLDivElement>(null);
 
+  const REFRESH_INTERVAL = 3000;
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["/api/user/manage", token],
     queryFn: () => api.getUserManageData(token),
     enabled: !!token,
-    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchInterval: REFRESH_INTERVAL,
     retry: false,
   });
 

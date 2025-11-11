@@ -1450,12 +1450,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // WebSocket for real-time stats
   const wss = new WebSocketServer({ server: httpServer, path: "/ws/stats" });
+  const REFRESH_INTERVAL = 3000;
 
   wss.on("connection", (ws: WebSocket) => {
     const interval = setInterval(async () => {
       const stats = await storage.getStats();
       ws.send(JSON.stringify(stats));
-    }, 10000);
+    }, REFRESH_INTERVAL);
 
     ws.on("close", () => {
       clearInterval(interval);
