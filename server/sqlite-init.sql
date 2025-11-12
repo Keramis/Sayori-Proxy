@@ -1,6 +1,7 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
+PRAGMA wal_autocheckpoint = 1000;
 PRAGMA cache_size = 10000;
 PRAGMA temp_store = memory;
 
