@@ -442,15 +442,42 @@ export class SQLiteStorage implements IStorage {
   }
 
   async replaceProviderModels(providerId: string, modelIds: string[]): Promise<Model[]> {
-    const transaction = this.db.transaction(() => {
-      try {
-        // Delete existing models for this provider
-        const deleteStmt = this.db.prepare('DELETE FROM models WHERE provider_id = ?');
-        deleteStmt.run(providerId);
-
-        // Create new models
-        const newModels: Model[] = [];
-        for (const modelId of modelIds) {
+  const transaction = this.db.transaction(() => {
+    try {
+      // Get existing models for this provider
+      const existingStmt = this.db.prepare('SELECT * FROM models WHERE provider_id = ?');
+      const existingModels = existingStmt.all(providerId).map(this.rowToModel);
+      
+      // Create a Set of new model IDs for quick lookup
+      const newModelIdSet = new Set(modelIds);
+      
+      // Create a Map of existing models by modelId
+      const existingModelMap = new Map(
+        existingModels.map(m => [m.modelId, m])
+      );
+      
+      const resultModels: Model[] = [];
+      
+      // Process new models: add if they don't exist, re-enable if they do
+      for (const modelId of modelIds) {
+        const existing = existingModelMap.get(modelId);
+        
+        if (existing) {
+          // Model exists - if it was disabled, re-enable it (model came back!)
+          if (!existing.enabled) {
+            const updateStmt = this.db.prepare('UPDATE models SET enabled = 1 WHERE id = ?');
+            updateStmt.run(existing.id);
+            
+            resultModels.push({
+              ...existing,
+              enabled: true,
+            });
+          } else {
+            // Model already exists and is enabled - keep as-is
+            resultModels.push(existing);
+          }
+        } else {
+          // New model - create it
           const id = randomUUID();
           const insertStmt = this.db.prepare(`
             INSERT INTO models (id, provider_id, model_id, enabled, request_cost)
@@ -458,7 +485,7 @@ export class SQLiteStorage implements IStorage {
           `);
           insertStmt.run(id, providerId, modelId, 1, 1);
           
-          newModels.push({
+          resultModels.push({
             id,
             providerId,
             modelId,
@@ -466,16 +493,31 @@ export class SQLiteStorage implements IStorage {
             requestCost: 1,
           });
         }
-        
-        return newModels;
-      } catch (error) {
-        console.error('Error in replaceProviderModels transaction:', error);
-        throw error;
       }
-    });
+      
+      // Disable old models (preserves historical data)
+      for (const existing of existingModels) {
+        if (!newModelIdSet.has(existing.modelId)) {
+          const updateStmt = this.db.prepare('UPDATE models SET enabled = 0 WHERE id = ?');
+          updateStmt.run(existing.id);
+          
+          resultModels.push({
+            ...existing,
+            enabled: false,
+          });
+        }
+      }
+      
+      return resultModels;
+    } catch (error) {
+      console.error('Error in replaceProviderModels transaction:', error);
+      throw error;
+    }
+  });
 
-    return transaction();
-  }
+  return transaction();
+}
+
 
   async updateModelsByProvider(providerId: string, updates: Partial<InsertModel>): Promise<Model[]> {
     const transaction = this.db.transaction(() => {
