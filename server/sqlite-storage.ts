@@ -574,7 +574,7 @@ export class SQLiteStorage implements IStorage {
   // User Token methods
   async getUserTokens(): Promise<UserToken[]> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens ORDER BY created_at DESC');
+      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE deleted_at IS NULL ORDER BY created_at DESC');
       const rows = stmt.all();
       return rows.map(this.rowToUserToken);
     } catch (error) {
@@ -585,7 +585,7 @@ export class SQLiteStorage implements IStorage {
 
   async getUserToken(token: string): Promise<UserToken | undefined> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE token = ?');
+      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE token = ? AND deleted_at IS NULL');
       const row = stmt.get(token);
       return row ? this.rowToUserToken(row) : undefined;
     } catch (error) {
@@ -596,7 +596,7 @@ export class SQLiteStorage implements IStorage {
 
   async getUserTokenById(id: string): Promise<UserToken | undefined> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ?');
+      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ? AND deleted_at IS NULL');
       const row = stmt.get(id);
       return row ? this.rowToUserToken(row) : undefined;
     } catch (error) {
@@ -721,7 +721,7 @@ export class SQLiteStorage implements IStorage {
   // Sub-key specific methods
   async getSubKeys(parentTokenId: string): Promise<UserToken[]> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE parent_token_id = ? ORDER BY created_at DESC');
+      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE parent_token_id = ? AND deleted_at IS NULL ORDER BY created_at DESC');
       const rows = stmt.all(parentTokenId);
       return rows.map(this.rowToUserToken);
     } catch (error) {
@@ -738,7 +738,7 @@ export class SQLiteStorage implements IStorage {
       const maxIterations = 100; // Prevent infinite loops - bandaid solution honestly, idfk why but i couldnt think of a better solution adn this works so yeah
 
       while (currentId && iterations < maxIterations) {
-        const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ?');
+        const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ? AND deleted_at IS NULL');
         const row: any = stmt.get(currentId);
         
         if (!row) break;
@@ -772,11 +772,11 @@ export class SQLiteStorage implements IStorage {
   async getTotalAllocatedQuota(parentTokenId: string): Promise<{ rpd: number; rpm: number }> {
     try {
       const stmt = this.db.prepare(`
-        SELECT 
+        SELECT
           COALESCE(SUM(max_rpd), 0) as total_rpd,
           COALESCE(SUM(max_rpm), 0) as total_rpm
-        FROM user_tokens 
-        WHERE parent_token_id = ?
+        FROM user_tokens
+        WHERE parent_token_id = ? AND deleted_at IS NULL
       `);
       const result = stmt.get(parentTokenId) as { total_rpd: number; total_rpm: number };
       

@@ -57,6 +57,7 @@ CREATE TABLE user_tokens (
     enabled INTEGER DEFAULT 1,
     sigma_boy INTEGER DEFAULT 0,
     max_sub_keys INTEGER DEFAULT 20,
+    deleted_at INTEGER,
     FOREIGN KEY (parent_token_id) REFERENCES user_tokens(id) ON DELETE CASCADE
 );
 
@@ -162,3 +163,70 @@ INSERT INTO system_config (key, value, updated_at) VALUES
 ('total_tokens_all', '0', strftime('%s', 'now')),
 ('total_requests_all', '0', strftime('%s', 'now')),
 ('active_requests', '0', strftime('%s', 'now'));
+
+/*
+USE THIS TO MIGRATE PROD DB:
+-- 1. Disable foreign keys temporarily
+PRAGMA foreign_keys = OFF;
+
+-- 2. Drop existing triggers if they exist
+DROP TRIGGER IF EXISTS promote_child_usage_on_delete;
+DROP TRIGGER IF EXISTS nullify_parent_usage_on_delete;
+
+-- 3. Create new usage_records table with correct constraints
+CREATE TABLE usage_records_new (
+    id TEXT PRIMARY KEY,
+    user_token_id TEXT,
+    model_id TEXT,
+    provider_id TEXT,
+    tokens INTEGER DEFAULT 0,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    timestamp INTEGER NOT NULL,
+    cost REAL NOT NULL DEFAULT 1.0,
+    FOREIGN KEY (user_token_id) REFERENCES user_tokens(id) ON DELETE SET NULL,
+    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+    FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
+);
+
+-- 4. Copy data
+INSERT INTO usage_records_new SELECT * FROM usage_records;
+
+-- 5. Replace old table
+DROP TABLE usage_records;
+ALTER TABLE usage_records_new RENAME TO usage_records;
+
+-- 6. Recreate indexes
+CREATE INDEX idx_usage_records_user_token_id ON usage_records(user_token_id);
+CREATE INDEX idx_usage_records_timestamp ON usage_records(timestamp);
+CREATE INDEX idx_usage_records_provider_id ON usage_records(provider_id);
+CREATE INDEX idx_usage_records_model_id ON usage_records(model_id);
+CREATE INDEX idx_usage_records_user_today ON usage_records(user_token_id, timestamp);
+
+-- 7. Recreate triggers
+CREATE TRIGGER promote_child_usage_on_delete
+BEFORE DELETE ON user_tokens
+FOR EACH ROW
+WHEN OLD.parent_token_id IS NOT NULL
+BEGIN
+    UPDATE usage_records 
+    SET user_token_id = OLD.parent_token_id 
+    WHERE user_token_id = OLD.id;
+END;
+
+CREATE TRIGGER nullify_parent_usage_on_delete
+BEFORE DELETE ON user_tokens
+FOR EACH ROW
+WHEN OLD.parent_token_id IS NULL
+BEGIN
+    UPDATE usage_records 
+    SET user_token_id = NULL 
+    WHERE user_token_id = OLD.id;
+END;
+
+-- 8. Re-enable foreign keys
+PRAGMA foreign_keys = ON;
+
+-- afterwards (deleted_at col)
+ALTER TABLE user_tokens ADD deleted_at INTEGER;
+*/
