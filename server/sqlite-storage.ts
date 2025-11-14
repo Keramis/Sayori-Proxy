@@ -865,11 +865,27 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
+  /**
+   * Quota validation across ancestor chain.
+   *
+   * IMPORTANT: Quotas are COST-BASED, not TOKEN-BASED.
+   * We intentionally ignore token counts here because:
+   *   1. Token counts can inflate historically due to legacy duplication.
+   *   2. Token metrics now only exist on leaf records (ancestors have tokens=0).
+   *   3. Daily and per-minute enforcement relies solely on aggregated 'cost' values
+   *      returned by getTodayUsageCount() / getMinuteUsageCount().
+   *
+   * This function checks if each ancestor has enough remaining COST quota to
+   * accept the new request with 'requestCost'. Token supply or model-specific
+   * token limits are out of scope for this proxy layer and should be enforced
+   * upstream (provider-side).
+   */
   async validateAncestorChainQuota(tokenId: string, requestCost: number): Promise<{ valid: boolean; reason?: string; insufficientToken?: string }> {
     try {
       const chain = await this.getAncestorChain(tokenId);
 
       for (const token of chain) {
+        // Cost already aggregated for the day; tokens intentionally ignored here.
         const todayUsage = await this.getTodayUsageCount(token.id);
         const remainingQuota = Number((token.maxRPD - todayUsage).toFixed(2));
 
@@ -891,22 +907,66 @@ export class SQLiteStorage implements IStorage {
   async createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void> {
     console.log(`[DEBUG] createUsageRecordForChain called for tokenId: ${tokenId}`);
     
-    // FIX: Don't use transaction for async operations - handle manually
+    // Legacy behavior: duplicates token counts across entire ancestor chain (kept for backward compatibility).
     try {
       console.log(`[DEBUG] Getting ancestor chain for tokenId: ${tokenId}`);
       const chain = await this.getAncestorChain(tokenId);
       console.log(`[DEBUG] Found ${chain.length} tokens in ancestor chain`);
-
+ 
       for (const token of chain) {
-        console.log(`[DEBUG] Creating usage record for token: ${token.id} (${token.name})`);
+        console.log(`[DEBUG] Creating usage record for token: ${token.id} (${token.name}) [LEGACY DUPLICATE]`);
         await this.createUsageRecord({
           ...record,
           userTokenId: token.id,
         });
       }
-      console.log(`[DEBUG] Successfully created usage records for chain`);
+      console.log(`[DEBUG] Successfully created legacy duplicate usage records for chain`);
     } catch (error) {
       console.error('[ERROR] Error in createUsageRecordForChain:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Leaf-only token recording to prevent token inflation across ancestor chain.
+   * Records real token counts only for the requesting (leaf) token; ancestors receive
+   * cost-only records with zeroed token fields.
+   */
+  async createUsageRecordForChainLeafTokens(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void> {
+    console.log(`[DEBUG] createUsageRecordForChainLeafTokens called for tokenId: ${tokenId}`);
+    try {
+      const chain = await this.getAncestorChain(tokenId);
+      if (chain.length === 0) {
+        console.log(`[DEBUG] No chain found for tokenId: ${tokenId}`);
+        return;
+      }
+
+      // Leaf is first element returned (child token).
+      const leaf = chain[0];
+      console.log(`[DEBUG] Recording leaf usage for token: ${leaf.id} (${leaf.name})`);
+      await this.createUsageRecord({
+        ...record,
+        userTokenId: leaf.id,
+      });
+
+      // Ancestors: zero token metrics, preserve cost for quota tracking.
+      for (let i = 1; i < chain.length; i++) {
+        const ancestor = chain[i];
+        console.log(`[DEBUG] Recording ancestor cost-only usage for token: ${ancestor.id} (${ancestor.name})`);
+        await this.createUsageRecord({
+          userTokenId: ancestor.id,
+          modelId: record.modelId,
+          providerId: record.providerId,
+          tokens: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cost: record.cost,
+        });
+      }
+
+      console.log(`[DEBUG] Leaf-only usage records created successfully for chain length=${chain.length}`);
+    } catch (error) {
+      console.error('[ERROR] Error in createUsageRecordForChainLeafTokens:', error);
       throw error;
     }
   }
@@ -1091,23 +1151,54 @@ export class SQLiteStorage implements IStorage {
   }
 
   // Stats methods
+  /**
+   * Returns global statistics.
+   *
+   * Anti-inflation design:
+   *   - Only leaf usage records contain real token counts (tokens > 0).
+   *   - Ancestor (cost-only) records have tokens=0.
+   *   - We therefore derive "totalTokens" and "totalRequests" from rows WHERE tokens > 0.
+   *
+   * Backward compatibility:
+   *   - If environment variable USE_SYSTEM_CONFIG_AGGREGATES=1 is set, we fall back
+   *     to legacy system_config counters (may still include historical inflated totals).
+   */
   async getStats(): Promise<Stats> {
+    const useLegacy = process.env.USE_SYSTEM_CONFIG_AGGREGATES === '1';
     try {
-      const totalTokensStmt = this.db.prepare('SELECT CAST(value AS INTEGER) as value FROM system_config WHERE key = ?');
-      const totalTokensResult = totalTokensStmt.get('total_tokens_all') as { value: number } | undefined;
-      const totalTokens = totalTokensResult?.value || 0;
-      
-      const totalRequestsStmt = this.db.prepare('SELECT CAST(value AS INTEGER) as value FROM system_config WHERE key = ?');
-      const totalRequestsResult = totalRequestsStmt.get('total_requests_all') as { value: number } | undefined;
-      const totalRequests = totalRequestsResult?.value || 0;
-      
+      let totalTokens = 0;
+      let totalRequests = 0;
+
+      if (useLegacy) {
+        // Legacy path: preserve existing aggregated counters
+        const totalTokensStmt = this.db.prepare('SELECT CAST(value AS INTEGER) as value FROM system_config WHERE key = ?');
+        const totalTokensResult = totalTokensStmt.get('total_tokens_all') as { value: number } | undefined;
+        totalTokens = totalTokensResult?.value || 0;
+        
+        const totalRequestsStmt = this.db.prepare('SELECT CAST(value AS INTEGER) as value FROM system_config WHERE key = ?');
+        const totalRequestsResult = totalRequestsStmt.get('total_requests_all') as { value: number } | undefined;
+        totalRequests = totalRequestsResult?.value || 0;
+      } else {
+        // Leaf-only aggregation: ignore cost-only ancestor records
+        const aggStmt = this.db.prepare(`
+          SELECT
+            COALESCE(SUM(tokens), 0) AS total_tokens,
+            COUNT(*) AS leaf_requests
+          FROM usage_records
+          WHERE tokens > 0
+        `);
+        const aggRow = aggStmt.get() as { total_tokens: number; leaf_requests: number } | undefined;
+        totalTokens = aggRow?.total_tokens || 0;
+        totalRequests = aggRow?.leaf_requests || 0;
+      }
+
       const uptime = Math.floor((Date.now() - this.startTime) / 1000);
-      
+
       return {
         totalTokens,
         totalRequests,
         activeRequests: this.activeRequests,
-        successRate: 100, // calculated based on error tracking
+        successRate: 100, // Placeholder until error tracking implemented
         uptime,
       };
     } catch (error) {

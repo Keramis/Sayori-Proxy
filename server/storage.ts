@@ -76,6 +76,7 @@ export interface IStorage {
   validateAncestorChain(tokenId: string): Promise<{ valid: boolean; reason?: string }>;
   validateAncestorChainQuota(tokenId: string, requestCost: number): Promise<{ valid: boolean; reason?: string; insufficientToken?: string }>;
   createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void>;
+  createUsageRecordForChainLeafTokens(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void>;
   cascadeDeleteSubKeys(parentTokenId: string): Promise<number>;
   cascadeDisableSubKeys(parentTokenId: string): Promise<number>;
   cascadeEnableSubKeys(parentTokenId: string): Promise<number>;
@@ -685,13 +686,24 @@ export class JSONStorage implements IStorage {
     }
   }
 
-  // Check if entire ancestor chain has enough quota for the request cost
+  /**
+   * Quota validation across ancestor chain.
+   *
+   * IMPORTANT: Quotas are COST-BASED, not TOKEN-BASED.
+   * Rationale:
+   *   1. Legacy behavior duplicated token counts across ancestors causing historical inflation.
+   *   2. New anti-inflation logic stores real token metrics only on the leaf usage record; ancestors have tokens=0.
+   *   3. Enforcement relies exclusively on aggregated 'cost' values from getTodayUsageCount()/getMinuteUsageCount().
+   *
+   * We therefore IGNORE token fields here completely and only verify remaining COST quota.
+   * Model-level token caps should be enforced upstream (provider side).
+   */
   async validateAncestorChainQuota(tokenId: string, requestCost: number): Promise<{ valid: boolean; reason?: string; insufficientToken?: string }> {
     try {
       const chain = await this.getAncestorChain(tokenId);
 
-      // Check each token in the chain has enough remaining quota
       for (const token of chain) {
+        // Cost already aggregated for the day; tokens intentionally ignored.
         const todayUsage = await this.getTodayUsageCount(token.id);
         const remainingQuota = Number((token.maxRPD - todayUsage).toFixed(2));
 
@@ -714,11 +726,44 @@ export class JSONStorage implements IStorage {
   async createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void> {
     const chain = await this.getAncestorChain(tokenId);
 
-    // Create usage record for each token in the chain
+    // Create usage record for each token in the chain (legacy behavior - duplicates tokens)
     for (const token of chain) {
       await this.createUsageRecord({
         ...record,
         userTokenId: token.id,
+      });
+    }
+  }
+
+  /**
+   * Leaf-only token recording to prevent token inflation across ancestor chain.
+   * Records real token counts only for the requesting (leaf) token; ancestors receive
+   * cost-only records with zeroed token fields.
+   */
+  async createUsageRecordForChainLeafTokens(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void> {
+    const chain = await this.getAncestorChain(tokenId);
+    if (chain.length === 0) return;
+
+    // Leaf is first entry (child) in chain construction order.
+    const leaf = chain[0];
+
+    // Record for leaf with actual token metrics.
+    await this.createUsageRecord({
+      ...record,
+      userTokenId: leaf.id,
+    });
+
+    // Ancestors: cost only, zero tokens.
+    for (let i = 1; i < chain.length; i++) {
+      const ancestor = chain[i];
+      await this.createUsageRecord({
+        userTokenId: ancestor.id,
+        modelId: record.modelId,
+        providerId: record.providerId,
+        tokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cost: record.cost,
       });
     }
   }
@@ -840,16 +885,39 @@ export class JSONStorage implements IStorage {
   }
 
   // Stats methods
+  /**
+   * Returns global statistics.
+   *
+   * Anti-inflation design:
+   *   - Only leaf usage records contain real token counts (tokens > 0).
+   *   - Ancestor (cost-only) records have tokens=0.
+   *   - We derive totals from records WHERE tokens > 0 unless legacy aggregate fallback is requested.
+   *
+   * Backward compatibility:
+   *   - If USE_LEGACY_BANDAID_TOTALS=1 is set, we return the existing bandaid counters (may include inflated totals).
+   */
   async getStats(): Promise<Stats> {
-    // const totalTokens = this.db.usageRecords.reduce((sum, r) => sum + r.tokens, 0);
-    // const totalRequests = this.db.usageRecords.length;
     const uptime = Math.floor((Date.now() - this.startTime) / 1000);
-    
+    const useLegacy = process.env.USE_LEGACY_BANDAID_TOTALS === '1';
+
+    let totalTokens: number;
+    let totalRequests: number;
+
+    if (useLegacy) {
+      // Legacy (bandaid) counters retained for transitional monitoring.
+      totalTokens = this.db.totalTokensAll;
+      totalRequests = this.db.totalRequestsAll;
+    } else {
+      // Leaf-only aggregation ignoring cost-only ancestor records.
+      totalTokens = this.db.usageRecords.reduce((sum, r) => sum + (r.tokens > 0 ? r.tokens : 0), 0);
+      totalRequests = this.db.usageRecords.reduce((sum, r) => sum + (r.tokens > 0 ? 1 : 0), 0);
+    }
+
     return {
-      totalTokens: this.db.totalTokensAll, // bandaid
-      totalRequests: this.db.totalRequestsAll, // bandaid
+      totalTokens,
+      totalRequests,
       activeRequests: this.activeRequests,
-      successRate: 100, // Can be calculated based on error tracking
+      successRate: 100, // Placeholder until error tracking implemented
       uptime,
     };
   }

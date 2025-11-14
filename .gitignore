@@ -10,3 +10,9 @@ database.json
 database.sqlite
 database.sqlite-shm
 database.sqlite-wal
+
+# cloudflared artifacts
+cloudflared.exe
+cloudflared.out
+cloudflared.log
+.cloudflared/

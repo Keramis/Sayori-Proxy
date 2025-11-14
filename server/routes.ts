@@ -12,6 +12,7 @@ import {
 } from "@shared/schema";
 import { rateLimit } from 'express-rate-limit';
 import { checkStringValidity, getClientIP } from '../tools/utils';
+import { countChatTokens, countTextTokens, getEncodingForModel } from "./tokenizer";
 
 /* DEFINING RATE LIMIT FUNCITONS UP IN HERE */
 const adminLoginRateLimit = rateLimit({
@@ -951,17 +952,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const payloadCache = new Map<string, { timestamp: number; payload: string }>();
   const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache TTL
 
-  // Helper function to estimate tokens from text (roughly 4 chars per token)
-  function estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
-  }
-
-  // Helper function to count input tokens from messages
-  function countInputTokens(messages: any[]): number {
-    if (!Array.isArray(messages)) return 0;
-    const messageText = JSON.stringify(messages);
-    return estimateTokens(messageText);
-  }
+  // (Deprecated) Heuristic helpers removed in favor of tokenizer-based counting:
+  //  - estimateTokens()
+  //  - countInputTokens()
+  // Use countChatTokens() and countTextTokens() from tokenizer.ts instead.
 
   // Chat completions proxy
   app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req, res) => {
@@ -986,7 +980,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Generate unique request ID
       const requestId = randomUUID().split('-')[0];
-      const inputTokens = countInputTokens(requestBody.messages || []);
+      // Defer input token counting until model/provider resolved (need modelId for encoding)
+      let inputTokens = 0;
 
       // Validate model parameter
       if (!model || typeof model !== 'string') {
@@ -1027,6 +1022,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!targetModel.enabled) {
         return safeSendError(400, `Model '${model}' is disabled`);
       }
+
+      // Perform accurate input token counting now that we have targetModel
+      try {
+        inputTokens = countChatTokens(requestBody.messages || [], targetModel.modelId, { useCache: true });
+      } catch (tokErr: any) {
+        console.warn(`[${requestId}] Input token counting failed: ${tokErr?.message}`);
+        if (process.env.STRICT_TOKEN_COUNT === "1") {
+          return safeSendError(500, "Tokenization failed (STRICT_TOKEN_COUNT=1)");
+        }
+        try {
+          inputTokens = countChatTokens(requestBody.messages || [], "cl100k_base", { useCache: true });
+          console.warn(`[${requestId}] Input token counting fallback to cl100k_base succeeded.`);
+        } catch (fallbackErr: any) {
+          return safeSendError(500, "Tokenization failed (fallback cl100k_base also failed)");
+        }
+      }
+      console.log(`[TOKENS][INPUT] requestId=${requestId} model=${targetModel.modelId} encoding=${getEncodingForModel(targetModel.modelId)} input=${inputTokens}`);
 
       if (!provider.enabled) {
         return safeSendError(400, "Provider is disabled");
@@ -1165,7 +1177,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if streaming is requested
       const isStreaming = requestBody.stream === true;
       console.log(`[DEBUG] Streaming requested: ${isStreaming}`);
-
+      // Added explicit tiktoken lifecycle logging
+      console.log(`[Tiktoken Token Count] (${isStreaming ? 'Streaming' : 'Non Streaming'}) Request called. Input: ${inputTokens}`);
+      
       if (isStreaming) {
         console.log(`[DEBUG] Setting up streaming response`);
         // For streaming responses, pipe the stream directly to the client
@@ -1272,41 +1286,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // If provider returned token usage in the stream, use it
           if (streamOutputTokens > 0 || streamInputTokens > 0 || totalTokens > 0) {
-            // Use the values extracted from the stream
             outputTokens = streamOutputTokens;
             actualInputTokens = streamInputTokens || inputTokens;
 
-            // If we have total tokens but missing output tokens, calculate it
             if (outputTokens === 0 && totalTokens > 0) {
               outputTokens = totalTokens > actualInputTokens ? totalTokens - actualInputTokens : 0;
             }
 
-            // Recalculate total if needed
             if (totalTokens === 0 && outputTokens > 0) {
               totalTokens = actualInputTokens + outputTokens;
             }
           } else {
-            // Fallback: estimate from streamed content if provider didn't return usage
             console.log(`[${requestId}] Provider didn't return token usage in stream, estimating from content`);
 
             if (streamedContent) {
-              outputTokens = estimateTokens(streamedContent);
+              try {
+                outputTokens = countTextTokens(streamedContent, targetModel.modelId);
+              } catch (tokErr: any) {
+                console.warn(`[${requestId}] Output token counting failed during stream finalization: ${tokErr?.message}`);
+                try {
+                  outputTokens = countTextTokens(streamedContent, "cl100k_base");
+                  console.warn(`[${requestId}] Output token counting fallback to cl100k_base succeeded.`);
+                } catch (fallbackErr: any) {
+                  console.warn(`[${requestId}] Output token counting fallback to cl100k_base failed: ${fallbackErr?.message}. Defaulting outputTokens=0.`);
+                  outputTokens = 0;
+                }
+              }
               totalTokens = actualInputTokens + outputTokens;
-
+              
               console.log(`[${requestId}] Estimated tokens - Input: ${actualInputTokens}, Output: ${outputTokens}, Total: ${totalTokens}`);
             } else {
-              // If we couldn't collect content, at least record input tokens
               totalTokens = actualInputTokens;
               console.log(`[${requestId}] Could not estimate output tokens, recording input tokens only: ${actualInputTokens}`);
             }
           }
 
-          // Track usage for streaming with pre-calculated cost
-          // For sub-keys, create usage records for entire ancestor chain
+          // Standardized streaming token log
+          console.log(`[TOKENS][STREAM] requestId=${requestId} model=${targetModel.modelId} encoding=${getEncodingForModel(targetModel.modelId)} input=${actualInputTokens} output=${outputTokens} total=${totalTokens} cached=${isCachedRequest}`);
+          // Added completion lifecycle log for streaming requests
+          console.log(`[Tiktoken Token Count] (Streaming) Request completed. Input: ${actualInputTokens} output: ${outputTokens} total: ${totalTokens}`);
+          
+          // Track usage (leaf-only for sub-keys, single for master)
           if (userToken.parentTokenId) {
-            console.log(`[DEBUG] Creating usage record for chain - userToken.parentTokenId exists`);
+            console.log(`[DEBUG] Creating leaf-only usage record for chain (streaming)`);
             try {
-              await storage.createUsageRecordForChain(userToken.id, {
+              await storage.createUsageRecordForChainLeafTokens(userToken.id, {
                 modelId: targetModel.id,
                 providerId: provider.id,
                 tokens: totalTokens,
@@ -1314,13 +1338,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 outputTokens: outputTokens,
                 cost: requestCost,
               });
-              console.log(`[DEBUG] Usage record chain created successfully`);
+              console.log(`[DEBUG] Leaf-only usage record chain created successfully`);
             } catch (usageError: any) {
-              console.error(`[ERROR] Failed to create usage record chain:`, usageError.message);
-              // Don't fail the entire request if usage tracking fails
+              console.error(`[ERROR] Failed to create leaf-only usage record chain:`, usageError.message);
             }
           } else {
-            // For master keys, create a single usage record
             try {
               await storage.createUsageRecord({
                 userTokenId: userToken.id,
@@ -1333,11 +1355,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
             } catch (usageError: any) {
               console.error(`[${requestId}] Failed to create usage record:`, usageError.message);
-              // Don't fail the entire request if usage tracking fails
             }
           }
 
-          // Log completed request
           console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${totalTokens} tokens.`);
 
           await storage.decrementActiveRequests();
@@ -1361,44 +1381,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let outputTokens = 0;
         let actualInputTokens = inputTokens;
 
-        // Check if provider returns usage info
         if (data.usage) {
-          // Try to get output tokens directly from completion_tokens or output_tokens
           outputTokens = data.usage.completion_tokens || data.usage.output_tokens || 0;
-
-          // Get input tokens if available (more accurate than our estimate)
           actualInputTokens = data.usage.prompt_tokens || data.usage.input_tokens || inputTokens;
-
-          // Get or calculate total tokens
           tokens = data.usage.total_tokens || (actualInputTokens + outputTokens);
-
-          // If we still don't have output tokens but have total, calculate it
           if (outputTokens === 0 && tokens > 0) {
             outputTokens = tokens > actualInputTokens ? tokens - actualInputTokens : 0;
           }
         }
 
-        // If no usage data at all, fallback to estimation
         if (tokens === 0 && outputTokens === 0) {
-          // Fallback: estimate tokens from response content if provider doesn't return usage
           console.log(`[${requestId}] Provider didn't return token usage, estimating from response content`);
-
-          // Estimate output tokens from the response content
           if (data.choices && data.choices[0]?.message?.content) {
-            outputTokens = estimateTokens(data.choices[0].message.content);
+            try {
+              outputTokens = countTextTokens(data.choices[0].message.content, targetModel.modelId);
+            } catch (tokErr: any) {
+              console.warn(`[${requestId}] Output token counting failed: ${tokErr?.message}`);
+              if (process.env.STRICT_TOKEN_COUNT === "1") {
+                return safeSendError(500, "Output tokenization failed (STRICT_TOKEN_COUNT=1)");
+              }
+              try {
+                outputTokens = countTextTokens(data.choices[0].message.content, "cl100k_base");
+                console.warn(`[${requestId}] Output token counting fallback to cl100k_base succeeded.`);
+              } catch (fallbackErr: any) {
+                console.warn(`[${requestId}] Output token counting fallback to cl100k_base failed: ${fallbackErr?.message}. Defaulting outputTokens=0.`);
+                outputTokens = 0;
+              }
+            }
           }
-
-          // Calculate total tokens
           tokens = actualInputTokens + outputTokens;
-
           console.log(`[${requestId}] Estimated tokens - Input: ${actualInputTokens}, Output: ${outputTokens}, Total: ${tokens}`);
         }
 
-        // For sub-keys, create usage records for entire ancestor chain
+        // Standardized non-streaming token log
+        console.log(`[TOKENS][FINAL] requestId=${requestId} model=${targetModel.modelId} encoding=${getEncodingForModel(targetModel.modelId)} input=${actualInputTokens} output=${outputTokens} total=${tokens} cached=${isCachedRequest}`);
+        // Added completion lifecycle log for non-streaming requests
+        console.log(`[Tiktoken Token Count] (Non Streaming) Request completed. Input: ${actualInputTokens} output: ${outputTokens} total: ${tokens}`);
+        
         if (userToken.keyType === "sub") {
-          console.log(`[DEBUG] Creating usage record for chain - userToken.keyType === "sub"`);
+          console.log(`[DEBUG] Creating leaf-only usage record chain (non-streaming)`);
           try {
-            await storage.createUsageRecordForChain(userToken.id, {
+            await storage.createUsageRecordForChainLeafTokens(userToken.id, {
               modelId: targetModel.id,
               providerId: provider.id,
               tokens,
@@ -1406,13 +1429,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               outputTokens: outputTokens,
               cost: requestCost,
             });
-            console.log(`[DEBUG] Usage record chain created successfully for non-streaming`);
+            console.log(`[DEBUG] Leaf-only usage record chain created successfully (non-streaming)`);
           } catch (usageError: any) {
-            console.error(`[ERROR] Failed to create usage record chain (non-streaming):`, usageError.message);
-            // Don't fail the entire request if usage tracking fails
+            console.error(`[ERROR] Failed to create leaf-only usage record chain (non-streaming):`, usageError.message);
           }
         } else {
-          // For master keys, create a single usage record
           try {
             await storage.createUsageRecord({
               userTokenId: userToken.id,
@@ -1425,11 +1446,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           } catch (usageError: any) {
             console.error(`[${requestId}] Failed to create usage record:`, usageError.message);
-            // Don't fail the entire request if usage tracking fails
           }
         }
 
-        // Log completed request
         console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${tokens} tokens.`);
 
         await storage.decrementActiveRequests();
