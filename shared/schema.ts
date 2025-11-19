@@ -126,3 +126,10 @@ export interface AdminCredentials {
   username: string;
   password: string;
 }
+
+export interface Admin {
+  id: string;
+  username: string;
+  password: string;
+  createdAt: number;
+}

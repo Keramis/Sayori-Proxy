@@ -11,6 +11,7 @@ import {
   InsertUsageRecord,
   Stats,
   AdminCredentials,
+  Admin,
 } from "@shared/schema";
 import { randomUUID, createCipheriv, createDecipheriv, scryptSync, randomBytes } from "crypto";
 import * as fs from "fs";
@@ -92,8 +93,8 @@ export interface IStorage {
   decrementActiveRequests(): Promise<void>;
 
   // Admin methods
-  getAdminCredentials(): Promise<AdminCredentials>;
-  updateAdminCredentials(credentials: AdminCredentials): Promise<void>;
+  getAdmin(username: string): Promise<Admin | undefined>;
+  createAdmin(username: string, password: string): Promise<Admin>;
 
   // Auth methods
   getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth">;
@@ -105,7 +106,7 @@ export class JSONStorage implements IStorage {
   private activeRequests: number = 0;
   private startTime: number = Date.now();
   private encryptionKey: Buffer | null = null;
-  
+
   private pendingSave: boolean = false;
   private pendingSaveTimer: NodeJS.Timeout | null = null;
 
@@ -124,7 +125,7 @@ export class JSONStorage implements IStorage {
 
   private encrypt(text: string): string {
     if (!this.encryptionKey) return text;
-    
+
     const iv = randomBytes(16);
     const cipher = createCipheriv('aes-256-cbc', this.encryptionKey, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
@@ -134,7 +135,7 @@ export class JSONStorage implements IStorage {
 
   private decrypt(encryptedText: string): string {
     if (!this.encryptionKey) return encryptedText;
-    
+
     try {
       const parts = encryptedText.split(':');
       if (parts.length === 2 && parts[0].length === 32) {
@@ -272,7 +273,7 @@ export class JSONStorage implements IStorage {
     console.log("[scheduleSave] running...");
 
     this.pendingSave = true; //lock
-    this.pendingSaveTimer = setTimeout( () => {
+    this.pendingSaveTimer = setTimeout(() => {
       this.saveDatabase();
       this.pendingSaveTimer = null;
       this.pendingSave = false;
@@ -586,7 +587,7 @@ export class JSONStorage implements IStorage {
     // Check sub-key count limit
     const existingSubKeys = await this.getSubKeys(parentTokenId);
     const maxSubKeys = parent.maxSubKeys || 20;
-    
+
     if (existingSubKeys.length >= maxSubKeys) {
       return {
         valid: false,
@@ -617,7 +618,7 @@ export class JSONStorage implements IStorage {
     const newTotalRPM = allocated.rpm + Math.abs(requestedRPM);
 
     if (newTotalRPD > parent.maxRPD) {
-      return { 
+      return {
         valid: false,
         reason: `Exceeds parent RPD limit. Available: ${parent.maxRPD - allocated.rpd}, Requested: ${requestedRPD}`,
       };
@@ -844,7 +845,7 @@ export class JSONStorage implements IStorage {
     // const totalTokens = this.db.usageRecords.reduce((sum, r) => sum + r.tokens, 0);
     // const totalRequests = this.db.usageRecords.length;
     const uptime = Math.floor((Date.now() - this.startTime) / 1000);
-    
+
     return {
       totalTokens: this.db.totalTokensAll, // bandaid
       totalRequests: this.db.totalRequestsAll, // bandaid
@@ -862,7 +863,16 @@ export class JSONStorage implements IStorage {
     this.activeRequests = Math.max(0, this.activeRequests - 1);
   }
 
-  // Admin methods - credentials are always read from .env
+  // Admin methods
+  async getAdmin(username: string): Promise<Admin | undefined> {
+    throw new Error("Method not implemented in JSONStorage");
+  }
+
+  async createAdmin(username: string, password: string): Promise<Admin> {
+    throw new Error("Method not implemented in JSONStorage");
+  }
+
+  // Admin credentials (deprecated)
   async getAdminCredentials(): Promise<AdminCredentials> {
     return {
       username: process.env.ADMIN_USERNAME || "admin",
