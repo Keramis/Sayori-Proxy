@@ -170,7 +170,8 @@ export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange
         }
       }
 
-      queryClient.invalidateQueries({ queryKey: ["providers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
 
       toast({
         title: editProvider ? "Provider Updated" : "Provider Created",
