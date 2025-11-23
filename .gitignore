@@ -11,3 +11,4 @@ database.sqlite
 *sessions*
 database.sqlite-shm
 database.sqlite-wal
+sessions.sqlite
