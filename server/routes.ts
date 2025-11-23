@@ -65,7 +65,7 @@ const chatCompletionsRateLimit = rateLimit({
   legacyHeaders: false,
   message: "Too many requests!",
   handler: (req, res, next, options) => {
-    console.error(`Rate limit triggerd for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   }
 })
