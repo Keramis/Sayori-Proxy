@@ -220,7 +220,7 @@ export const api = {
     }).then((res) => res.json()),
 
   async updateAllModelsCost(authToken: string, providerId: string, requestCost: number) {
-    const response = await fetch(`${API_URL}/api/admin/providers/${providerId}/models/update-cost-all`, {
+    const response = await fetch(`/api/admin/providers/${providerId}/models/update-cost-all`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
