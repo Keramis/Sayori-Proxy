@@ -278,7 +278,7 @@ export const api = {
       return res.json();
     }),
 
-  async updateAllModelsCost(providerId: string, requestCost: number) {
+  async updateAllModelsCost(authToken: string, providerId: string, requestCost: number) {
     const response = await fetch(`/api/admin/providers/${providerId}/models/update-cost-all`, {
       method: "POST",
       headers: {
