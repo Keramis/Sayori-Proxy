@@ -10,11 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 
-interface AdminUserTokenFormProps {
-  authToken: string;
-}
+interface AdminUserTokenFormProps { }
 
-export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
+export function AdminUserTokenForm({ }: AdminUserTokenFormProps) {
   const [tokenName, setTokenName] = useState("");
   const [maxRPD, setMaxRPD] = useState("");
   const [maxRPM, setMaxRPM] = useState("");
@@ -26,7 +24,7 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
 
   const { data: providers = [] } = useQuery({
     queryKey: ["/api/admin/providers"],
-    queryFn: () => api.getProviders(authToken),
+    queryFn: () => api.getProviders(),
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -34,7 +32,7 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
     setLoading(true);
 
     try {
-      const result = await api.createUserToken(authToken, {
+      const result = await api.createUserToken({
         name: tokenName,
         maxRPD: parseInt(maxRPD),
         maxRPM: parseInt(maxRPM),

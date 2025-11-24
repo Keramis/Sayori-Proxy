@@ -19,11 +19,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 
-interface AdminUserTokenListProps {
-  authToken: string;
-}
+interface AdminUserTokenListProps { }
 
-export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
+export function AdminUserTokenList({ }: AdminUserTokenListProps) {
   const { toast } = useToast();
   const [editingToken, setEditingToken] = useState<any>(null);
   const [editMaxRPD, setEditMaxRPD] = useState("");
@@ -44,12 +42,12 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
 
   const { data: tokens = [], isLoading } = useQuery({
     queryKey: ["/api/admin/tokens"],
-    queryFn: () => api.getUserTokens(authToken),
+    queryFn: () => api.getUserTokens(),
   });
 
   const { data: providers = [] } = useQuery({
     queryKey: ["/api/admin/providers"],
-    queryFn: () => api.getProviders(authToken),
+    queryFn: () => api.getProviders(),
   });
 
   // Filter tokens based on all criteria
@@ -129,7 +127,7 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
 
     setEditLoading(true);
     try {
-      await api.updateUserToken(authToken, editingToken.id, {
+      await api.updateUserToken(editingToken.id, {
         maxRPD: parseInt(editMaxRPD),
         maxRPM: parseInt(editMaxRPM),
         allowedProviders: editAllowedProviders,
@@ -168,7 +166,7 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     }
 
     try {
-      await api.deleteUserToken(authToken, id);
+      await api.deleteUserToken(id);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tokens"] });
       toast({
         title: "Token Deleted",
@@ -195,7 +193,7 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
     );
   }
 
-  const hasActiveFilters = searchQuery || filterSigmaBoy || filterMasterKeys || 
+  const hasActiveFilters = searchQuery || filterSigmaBoy || filterMasterKeys ||
     filterSubKeys || filterTemporaryKeys || filterDisabledKeys || filterProviders.length > 0;
 
   return (
@@ -339,96 +337,96 @@ export function AdminUserTokenList({ authToken }: AdminUserTokenListProps) {
       ) : (
         <div className="space-y-3">
           {filteredTokens.map((token: any) => (
-        <Card key={token.id} className="p-4">
-          <div className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <h3 className="font-semibold text-lg" data-testid={`token-name-${token.id}`}>
-                    {token.name}
-                  </h3>
-                  {token.sigmaBoy && (
-                    <Badge variant="secondary" data-testid={`badge-sigma-boy-${token.id}`}>
-                      Sigma Boy
-                    </Badge>
-                  )}
-                  {token.keyType === "sub" && (
-                    <Badge variant="outline" data-testid={`badge-sub-key-${token.id}`}>
-                      Sub-Key
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <code className="text-sm font-mono bg-muted px-2 py-1 rounded break-all" data-testid={`token-value-${token.id}`}>
-                    {token.token}
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => copyToken(token.token)}
-                    data-testid={`button-copy-${token.id}`}>
-                    <Copy className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex gap-2 self-start sm:self-auto flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => openEditDialog(token)}
-                  data-testid={`button-edit-token-${token.id}`}>
-                  <Edit className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => deleteToken(token.id)}
-                  data-testid={`button-delete-token-${token.id}`}>
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">
-                  Requests Today: {token.usedRPD}/{token.maxRPD}
-                </div>
-                <Progress value={(token.usedRPD / token.maxRPD) * 100} className="h-2" />
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm text-muted-foreground">Max RPM: {token.maxRPM}</div>
-                {token.sigmaBoy && (
-                  <div className="text-sm text-muted-foreground" data-testid={`text-max-subkeys-${token.id}`}>
-                    Max Sub-keys: {token.maxSubKeys || 20}
+            <Card key={token.id} className="p-4">
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <h3 className="font-semibold text-lg" data-testid={`token-name-${token.id}`}>
+                        {token.name}
+                      </h3>
+                      {token.sigmaBoy && (
+                        <Badge variant="secondary" data-testid={`badge-sigma-boy-${token.id}`}>
+                          Sigma Boy
+                        </Badge>
+                      )}
+                      {token.keyType === "sub" && (
+                        <Badge variant="outline" data-testid={`badge-sub-key-${token.id}`}>
+                          Sub-Key
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <code className="text-sm font-mono bg-muted px-2 py-1 rounded break-all" data-testid={`token-value-${token.id}`}>
+                        {token.token}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyToken(token.token)}
+                        data-testid={`button-copy-${token.id}`}>
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
 
-            {/* Provider Access Display */}
-            <div className="mt-3">
-              <div className="text-sm text-muted-foreground mb-2">Allowed Providers</div>
-              <div className="flex flex-wrap gap-2">
-                {token.allowedProviders && token.allowedProviders.length > 0 ? (
-                  token.allowedProviders.map((providerId: string) => {
-                    const provider = providers.find((p: any) => p.id === providerId);
-                    return (
-                      <Badge key={providerId} variant="secondary" className="text-xs">
-                        {provider?.name || providerId}
+                  <div className="flex gap-2 self-start sm:self-auto flex-shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openEditDialog(token)}
+                      data-testid={`button-edit-token-${token.id}`}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteToken(token.id)}
+                      data-testid={`button-delete-token-${token.id}`}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">
+                      Requests Today: {token.usedRPD}/{token.maxRPD}
+                    </div>
+                    <Progress value={(token.usedRPD / token.maxRPD) * 100} className="h-2" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">Max RPM: {token.maxRPM}</div>
+                    {token.sigmaBoy && (
+                      <div className="text-sm text-muted-foreground" data-testid={`text-max-subkeys-${token.id}`}>
+                        Max Sub-keys: {token.maxSubKeys || 20}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Provider Access Display */}
+                <div className="mt-3">
+                  <div className="text-sm text-muted-foreground mb-2">Allowed Providers</div>
+                  <div className="flex flex-wrap gap-2">
+                    {token.allowedProviders && token.allowedProviders.length > 0 ? (
+                      token.allowedProviders.map((providerId: string) => {
+                        const provider = providers.find((p: any) => p.id === providerId);
+                        return (
+                          <Badge key={providerId} variant="secondary" className="text-xs">
+                            {provider?.name || providerId}
+                          </Badge>
+                        );
+                      })
+                    ) : (
+                      <Badge variant="default" className="text-xs">
+                        All providers
                       </Badge>
-                    );
-                  })
-                ) : (
-                  <Badge variant="default" className="text-xs">
-                    All providers
-                  </Badge>
-                )}
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </Card>
+            </Card>
           ))}
         </div>
       )}

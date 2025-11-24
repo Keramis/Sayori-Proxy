@@ -15,19 +15,6 @@ DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS system_config;
 
 CREATE TABLE providers (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    base_url TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL, -- unix
-    custom_headers TEXT,
-    disable_cache_discount INTEGER DEFAULT 0
-);
-
-CREATE TABLE api_keys (
-    id TEXT PRIMARY KEY,
-    provider_id TEXT NOT NULL,
-    key TEXT NOT NULL,
     last_used INTEGER DEFAULT 0,
     request_count INTEGER DEFAULT 0,
     FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
