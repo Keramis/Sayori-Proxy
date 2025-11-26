@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS user_tokens;
 DROP TABLE IF EXISTS models;
 DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS providers;
+DROP TABLE IF EXISTS admins;
 DROP TABLE IF EXISTS system_config;
 
 CREATE TABLE providers (
@@ -75,6 +76,14 @@ CREATE TABLE usage_records (
     FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
     FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
 );
+
+CREATE TABLE admins (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 
 CREATE TABLE system_config (
     "key" TEXT PRIMARY KEY, -- config key
