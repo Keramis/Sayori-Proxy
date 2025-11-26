@@ -8,5 +8,7 @@ vite.config.ts.*
 database.json
 *database*.json
 database.sqlite
+*sessions*
 database.sqlite-shm
 database.sqlite-wal
+sessions.sqlite

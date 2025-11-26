@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AdminProviderForm } from "@/components/AdminProviderForm";
 import { AdminProviderList } from "@/components/AdminProviderList";
 import { AdminUserTokenForm } from "@/components/AdminUserTokenForm";
@@ -12,15 +11,36 @@ import { Card } from "@/components/ui/card";
 import { Shield } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 export default function Admin() {
   const { toast } = useToast();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authToken, setAuthToken] = useState("");
+  const [activeTab, setActiveTab] = useState("providers");
+  // authToken removed as we use session cookies now
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.checkAuth()
+      .then(() => setIsAuthenticated(true))
+      .catch(() => setIsAuthenticated(false));
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+      setIsAuthenticated(false);
+      toast({
+        title: "Logged out",
+        description: "You have been successfully logged out.",
+      });
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,8 +48,7 @@ export default function Admin() {
     setError("");
 
     try {
-      const result = await api.adminLogin(username, password);
-      setAuthToken(result.token);
+      await api.adminLogin(username, password);
       setIsAuthenticated(true);
       toast({
         title: "Login Successful",
@@ -112,49 +131,78 @@ export default function Admin() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-semibold mb-2">Admin Dashboard</h1>
-          <p className="text-muted-foreground text-sm sm:text-base">
-            Manage providers, user tokens, and system settings
-          </p>
+        <div className="mb-6 sm:mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-semibold mb-2">Admin Dashboard</h1>
+            <p className="text-muted-foreground text-sm sm:text-base">
+              Manage providers, user tokens, and system settings
+            </p>
+          </div>
+          <Button variant="outline" onClick={handleLogout}>Logout</Button>
         </div>
 
-        <Tabs defaultValue="providers" className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="providers" data-testid="tab-providers">Providers</TabsTrigger>
-            <TabsTrigger value="tokens" data-testid="tab-tokens">User Tokens</TabsTrigger>
-          </TabsList>
+        <div className="space-y-6">
+          <div className="flex space-x-1 rounded-xl bg-muted p-1">
+            <button
+              onClick={() => setActiveTab("providers")}
+              className={cn(
+                "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
+                activeTab === "providers"
+                  ? "bg-background text-foreground shadow"
+                  : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
+              )}
+              data-testid="tab-providers"
+            >
+              Providers
+            </button>
+            <button
+              onClick={() => setActiveTab("tokens")}
+              className={cn(
+                "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
+                activeTab === "tokens"
+                  ? "bg-background text-foreground shadow"
+                  : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
+              )}
+              data-testid="tab-tokens"
+            >
+              User Tokens
+            </button>
+          </div>
 
-          <TabsContent value="providers" className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Add New Provider</h2>
-              <div className="max-w-2xl">
-                <AdminProviderForm authToken={authToken} />
+          {activeTab === "providers" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Add New Provider</h2>
+                <div className="max-w-2xl">
+                  <AdminProviderForm />
+                </div>
+              </div>
+
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Existing Providers</h2>
+                <AdminProviderList />
               </div>
             </div>
+          )}
 
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Existing Providers</h2>
-              <AdminProviderList authToken={authToken} />
-            </div>
-          </TabsContent>
+          {activeTab === "tokens" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Create New Token</h2>
+                <div className="max-w-2xl">
+                  <AdminUserTokenForm />
+                </div>
+              </div>
 
-          <TabsContent value="tokens" className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Create New Token</h2>
-              <div className="max-w-2xl">
-                <AdminUserTokenForm authToken={authToken} />
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Existing Tokens</h2>
+                <AdminUserTokenList />
               </div>
             </div>
-
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Existing Tokens</h2>
-              <AdminUserTokenList authToken={authToken} />
-            </div>
-          </TabsContent>
-        </Tabs>
+          )}
+        </div>
       </main>
     </div>
   );

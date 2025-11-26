@@ -19,11 +19,9 @@ import {
 import { Edit2 } from "lucide-react";
 import { AdminProviderForm } from "./AdminProviderForm";
 
-interface AdminProviderListProps {
-  authToken: string;
-}
+interface AdminProviderListProps { }
 
-export function AdminProviderList({ authToken }: AdminProviderListProps) {
+export function AdminProviderList({ }: AdminProviderListProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
@@ -34,7 +32,7 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
 
   const { data: providersData, isLoading } = useQuery({
     queryKey: ["/api/admin/providers"],
-    queryFn: () => api.getProviders(authToken),
+    queryFn: () => api.getProviders(),
   });
 
   // Ensure providers is always an array
@@ -42,7 +40,7 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
 
   const toggleProvider = async (id: string, currentState: boolean) => {
     try {
-      await api.updateProvider(authToken, id, { enabled: !currentState });
+      await api.updateProvider(id, { enabled: !currentState });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
@@ -65,7 +63,7 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
 
     setDeleting(id); // Set deleting state
     try {
-      await api.deleteProvider(authToken, id);
+      await api.deleteProvider(id);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
@@ -115,7 +113,6 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
             <div className="space-y-3">
               <h3 className="font-semibold text-lg mb-4">Edit Provider</h3>
               <AdminProviderForm
-                authToken={authToken}
                 editProvider={editingProvider}
                 onEditComplete={() => setEditingProvider(null)}
                 onSearchChange={(search) => {
@@ -210,7 +207,6 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
                     </div>
                   )}
                   <AdminModelList
-                    authToken={authToken}
                     providerId={provider.id}
                     providerName={provider.name}
                     searchQuery={modelSearchMap.get(provider.id) || ""}

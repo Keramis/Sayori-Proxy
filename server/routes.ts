@@ -71,33 +71,24 @@ const chatCompletionsRateLimit = rateLimit({
 })
 
 
+import session from "express-session";
+import connectSqlite3 from "connect-sqlite3";
+import bcrypt from "bcrypt";
+
+const SQLiteStore = connectSqlite3(session);
+
 // Middleware for admin authentication
 function adminAuth(req: Request, res: Response, next: Function) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Basic ")) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if ((req.session as any).adminId) {
+    return next();
   }
-
-  const base64Credentials = authHeader.split(" ")[1];
-  const credentials = Buffer.from(base64Credentials, "base64").toString("ascii");
-  const [username, password] = credentials.split(":");
-
-  storage.getAdminCredentials().then((creds) => {
-    console.log(`[AUTH] Attempting login - Username: ${username}, Expected: ${creds.username}`);
-    console.log(`[AUTH] Password match: ${password === creds.password}`);
-    
-    if (username === creds.username && password === creds.password) {
-      next();
-    } else {
-      res.status(401).json({ error: "Invalid credentials" });
-    }
-  });
+  res.status(401).json({ error: "Unauthorized" });
 }
 
 // Middleware for user token authentication
 async function userTokenAuth(req: Request, res: Response, next: Function) {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  
+
   if (!token) {
     return res.status(401).json({ error: "No token provided" });
   }
@@ -154,42 +145,112 @@ async function flexibleAuth(req: Request, res: Response, next: Function) {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Enable CORS
   app.use(cors({
-    origin: "*",
+    origin: true, // Allow all origins but reflect request origin
     credentials: true,
   }));
 
+  // Session configuration
+  app.use(session({
+    store: new SQLiteStore({
+      db: 'sessions.sqlite',
+      dir: './'
+    }) as any,
+    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+  }));
+
   // Public routes
-  
+
 
   // Admin login
-  app.post("/api/admin/login", adminLoginRateLimit, async (req, res) => {
+  app.post("/api/admin/login", adminLoginRateLimit, async (req: Request, res: Response) => {
     const { username, password } = req.body;
-    const creds = await storage.getAdminCredentials();
 
-    console.log(`[LOGIN] Attempt - Username: ${username}, Expected: ${creds.username}`);
-    console.log(`[LOGIN] Password match: ${password === creds.password}`);
+    try {
+      const admin = await storage.getAdmin(username);
 
-    if (username === creds.username && password === creds.password) {
-      const credentials = Buffer.from(`${username}:${password}`).toString("base64");
-      res.json({ success: true, token: `Basic ${credentials}` });
+      if (!admin) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const isValid = await bcrypt.compare(password, admin.password);
+
+      if (isValid) {
+        (req.session as any).adminId = admin.id;
+        req.session.save(() => {
+          res.json({ success: true });
+        });
+      } else {
+        res.status(401).json({ error: "Invalid credentials" });
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/logout", (req: Request, res: Response) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Could not log out" });
+      }
+      res.json({ success: true });
+    });
+  });
+
+  app.get("/api/admin/me", async (req: Request, res: Response) => {
+    if (!(req.session as any).adminId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    // We could fetch the admin details here if needed, but for now just returning success
+    // const admin = await storage.getAdminById((req.session as any).adminId);
+    res.json({
+      authenticated: true,
+      adminId: (req.session as any).adminId
+    });
+  });
+
+
+
+  // Admin logout
+  app.post("/api/admin/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Failed to logout" });
+      }
+      res.clearCookie("connect.sid");
+      res.json({ success: true });
+    });
+  });
+
+  // Check auth status
+  app.get("/api/admin/me", (req, res) => {
+    if ((req.session as any).userId) {
+      res.json({ authenticated: true, username: (req.session as any).username });
     } else {
-      res.status(401).json({ error: "Invalid credentials" });
+      res.status(401).json({ authenticated: false });
     }
   });
 
   app.use('/api/admin', adminApiRateLimit);
 
   // Get stats (public)
-  app.get("/api/stats", async (req, res) => {
+  app.get("/api/stats", async (req: Request, res: Response) => {
     const stats = await storage.getStats();
     res.json(stats);
   });
 
   // Get all providers with models (public, only enabled)
-  app.get("/api/providers/public", async (req, res) => {
+  app.get("/api/providers/public", async (req: Request, res: Response) => {
     const providers = await storage.getProviders();
     const enabledProviders = providers.filter((p) => p.enabled);
-    
+
     const providersWithModels = await Promise.all(
       enabledProviders.map(async (provider) => {
         const models = await storage.getModels(provider.id);
@@ -206,7 +267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User token stats
-  app.post("/api/token/stats", async (req, res) => {
+  app.post("/api/token/stats", async (req: Request, res: Response) => {
     const { token } = req.body;
     const userToken = await storage.getUserToken(token);
 
@@ -219,14 +280,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Calculate model usage with display names
     const modelUsage: Record<string, number> = {};
-    
+
     // Get all models to create a mapping from model UUID to display name
     const allModels = await storage.getModels();
     const modelMap = allModels.reduce((acc, model) => {
       acc[model.id] = model.modelId; // Map UUID to display name - WARNING! THIS IS A ONE TIME RUN FFS
       return acc;
     }, {} as Record<string, string>);
-    
+
     usageRecords.forEach((record) => {
       const displayName = modelMap[record.modelId] || record.modelId; // Fallback to UUID if not found
       modelUsage[displayName] = (modelUsage[displayName] || 0) + 1;
@@ -252,7 +313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User token update name
-  app.patch("/api/token/update-name", subkeyRenameRateLimit, async (req, res) => {
+  app.patch("/api/token/update-name", subkeyRenameRateLimit, async (req: Request, res: Response) => {
     const { token, name } = req.body;
 
     if (!token || !name) {
@@ -261,11 +322,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const nameValidation = checkStringValidity(name);
     if (!nameValidation.valid) {
-      return res.status(400).json({error: nameValidation.error});
+      return res.status(400).json({ error: nameValidation.error });
     }
 
     if (name.length > 50) {
-      return res.status(400).json({error: "Name cannot be greater than 50 characters"});
+      return res.status(400).json({ error: "Name cannot be greater than 50 characters" });
     }
 
     const userToken = await storage.getUserToken(token);
@@ -283,7 +344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User manage - comprehensive token details (requires token authentication)
-  app.post("/api/user/manage", async (req, res) => {
+  app.post("/api/user/manage", async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -312,14 +373,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate model usage breakdown with display names
       const modelUsage: Record<string, { count: number; totalTokens: number; totalCost: number }> = {};
-      
+
       // Get all models to create a mapping from model UUID to display name
       const allModels = await storage.getModels();
       const modelMap = allModels.reduce((acc, model) => {
         acc[model.id] = model.modelId; // Map UUID to display name
         return acc;
       }, {} as Record<string, string>);
-      
+
       usageRecords.forEach((record) => {
         const displayName = modelMap[record.modelId] || record.modelId; // Fallback to UUID if not found
         if (!modelUsage[displayName]) {
@@ -486,7 +547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create sub-key
-  app.post("/api/user/sub-keys", subKeyRateLimit, async (req, res) => {
+  app.post("/api/user/sub-keys", subKeyRateLimit, async (req: Request, res: Response) => {
     const { token, name, maxRPD, maxRPM, allowedProviders, expiresAt } = req.body;
 
     if (!token) {
@@ -495,7 +556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // validate name
     if (!name || (!(checkStringValidity(name).valid)) || name.length > 50) {
-      return res.status(400).json({error: "Name has to be valid and below 50 characters!"});
+      return res.status(400).json({ error: "Name has to be valid and below 50 characters!" });
     }
 
     const parentToken = await storage.getUserToken(token);
@@ -535,7 +596,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete sub-key (with cascade)
-  app.delete("/api/user/sub-keys/:id", async (req, res) => {
+  app.delete("/api/user/sub-keys/:id", async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -570,7 +631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Disable sub-key (with cascade)
-  app.post("/api/user/sub-keys/:id/disable", async (req, res) => {
+  app.post("/api/user/sub-keys/:id/disable", async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -605,7 +666,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Enable sub-key (with cascade, but skip expired ones)
-  app.post("/api/user/sub-keys/:id/enable", async (req, res) => {
+  app.post("/api/user/sub-keys/:id/enable", async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -645,9 +706,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin routes (protected)
-  
+
   // Providers
-  app.get("/api/admin/providers", adminAuth, async (req, res) => {
+  app.get("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
     const providers = await storage.getProviders();
     const providersWithCounts = await Promise.all(
       providers.map(async (provider) => {
@@ -663,16 +724,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(providersWithCounts);
   });
 
-  app.post("/api/admin/providers", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
     try {
       const data = insertProviderSchema.parse(req.body);
-      
+
       // Check for duplicate provider name
       const existingProviders = await storage.getProviders();
       if (existingProviders.some(p => p.name.toLowerCase() === data.name.toLowerCase())) {
         return res.status(400).json({ error: "A provider with this name already exists" });
       }
-      
+
       const provider = await storage.createProvider(data);
       res.json(provider);
     } catch (error: any) {
@@ -680,7 +741,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/providers/:id", adminAuth, async (req, res) => {
+  app.patch("/api/admin/providers/:id", adminAuth, async (req: Request, res: Response) => {
     try {
       // Check for duplicate provider name if name is being updated
       if (req.body.name) {
@@ -689,7 +750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "A provider with this name already exists" });
         }
       }
-      
+
       const provider = await storage.updateProvider(req.params.id, req.body);
       if (!provider) {
         return res.status(404).json({ error: "Provider not found" });
@@ -700,18 +761,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/providers/:id", adminAuth, async (req, res) => {
+  app.delete("/api/admin/providers/:id", adminAuth, async (req: Request, res: Response) => {
     const success = await storage.deleteProvider(req.params.id);
     res.json({ success });
   });
 
   // API Keys
-  app.get("/api/admin/providers/:id/keys", adminAuth, async (req, res) => {
+  app.get("/api/admin/providers/:id/keys", adminAuth, async (req: Request, res: Response) => {
     const keys = await storage.getApiKeys(req.params.id);
     res.json(keys);
   });
 
-  app.post("/api/admin/providers/:id/keys", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers/:id/keys", adminAuth, async (req: Request, res: Response) => {
     try {
       const data = insertApiKeySchema.parse({
         ...req.body,
@@ -724,12 +785,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/keys/:id", adminAuth, async (req, res) => {
+  app.delete("/api/admin/keys/:id", adminAuth, async (req: Request, res: Response) => {
     const success = await storage.deleteApiKey(req.params.id);
     res.json({ success });
   });
 
-  app.patch("/api/admin/keys/:id", adminAuth, async (req, res) => {
+  app.patch("/api/admin/keys/:id", adminAuth, async (req: Request, res: Response) => {
     const { key } = req.body;
     if (!key) {
       return res.status(400).json({ error: "Key is required" });
@@ -742,12 +803,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Models
-  app.get("/api/admin/providers/:id/models", adminAuth, async (req, res) => {
+  app.get("/api/admin/providers/:id/models", adminAuth, async (req: Request, res: Response) => {
     const models = await storage.getModels(req.params.id);
     res.json(models);
   });
 
-  app.post("/api/admin/providers/:id/check-models", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers/:id/check-models", adminAuth, async (req: Request, res: Response) => {
     try {
       const provider = await storage.getProvider(req.params.id);
       if (!provider) {
@@ -761,7 +822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Normalize base URL - remove trailing slash
       const baseUrl = provider.baseUrl.replace(/\/$/, '');
-      
+
       // Construct the models endpoint URL
       const modelsUrl = `${baseUrl}/models`;
 
@@ -787,7 +848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const data = await response.json();
       console.log('Received data:', JSON.stringify(data).substring(0, 200));
-      
+
       // Handle different response formats
       let modelIds: string[] = [];
       if (data.data && Array.isArray(data.data)) {
@@ -815,7 +876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/models/:id", adminAuth, async (req, res) => {
+  app.patch("/api/admin/models/:id", adminAuth, async (req: Request, res: Response) => {
     const model = await storage.updateModel(req.params.id, req.body);
     if (!model) {
       return res.status(404).json({ error: "Model not found" });
@@ -823,13 +884,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(model);
   });
 
-  app.delete("/api/admin/models/:id", adminAuth, async (req, res) => {
+  app.delete("/api/admin/models/:id", adminAuth, async (req: Request, res: Response) => {
     const success = await storage.deleteModel(req.params.id);
     res.json({ success });
   });
 
   // Bulk model operations
-  app.post("/api/admin/providers/:id/models/enable-all", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers/:id/models/enable-all", adminAuth, async (req: Request, res: Response) => {
     try {
       const models = await storage.enableAllModelsByProvider(req.params.id);
       res.json({ success: true, count: models.length });
@@ -838,7 +899,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/providers/:id/models/disable-all", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers/:id/models/disable-all", adminAuth, async (req: Request, res: Response) => {
     try {
       const models = await storage.disableAllModelsByProvider(req.params.id);
       res.json({ success: true, count: models.length });
@@ -847,7 +908,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/providers/:id/models/update-cost-all", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers/:id/models/update-cost-all", adminAuth, async (req: Request, res: Response) => {
     try {
       const { requestCost } = req.body;
       if (!requestCost || requestCost < 1) {
@@ -861,7 +922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User Tokens
-  app.get("/api/admin/tokens", adminAuth, async (req, res) => {
+  app.get("/api/admin/tokens", adminAuth, async (req: Request, res: Response) => {
     const tokens = await storage.getUserTokens();
     const tokensWithUsage = await Promise.all(
       tokens.map(async (token) => {
@@ -875,7 +936,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(tokensWithUsage);
   });
 
-  app.post("/api/admin/tokens", adminAuth, async (req, res) => {
+  app.post("/api/admin/tokens", adminAuth, async (req: Request, res: Response) => {
     try {
       const data = insertUserTokenSchema.parse(req.body);
       const token = await storage.createUserToken(data);
@@ -885,7 +946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/tokens/:id", adminAuth, async (req, res) => {
+  app.patch("/api/admin/tokens/:id", adminAuth, async (req: Request, res: Response) => {
     try {
       const token = await storage.updateUserToken(req.params.id, req.body);
       if (!token) {
@@ -897,12 +958,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/tokens/:id", adminAuth, async (req, res) => {
+  app.delete("/api/admin/tokens/:id", adminAuth, async (req: Request, res: Response) => {
     const success = await storage.deleteUserToken(req.params.id);
     res.json({ success });
   });
 
-  app.get("/api/debug/ip", (req, res) => {
+  app.get("/api/debug/ip", (req: Request, res: Response) => {
     res.json({
       cfConnectingIP: req.get('cf-connecting-ip'),
       forwardedFor: req.get('x-forwarded-for'),
@@ -923,10 +984,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // OpenAI-compatible endpoints
 
   // Get models
-  app.get("/v1/models", async (req, res) => {
+  app.get("/v1/models", async (req: Request, res: Response) => {
     const providers = await storage.getProviders();
     const enabledProviders = providers.filter((p) => p.enabled);
-    
+
     const allModels = await Promise.all(
       enabledProviders.map(async (provider) => {
         const models = await storage.getModels(provider.id);
@@ -964,9 +1025,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Chat completions proxy
-  app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req, res) => {
+  app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req: Request, res: Response) => {
     let responseSent = false;
-    
+
     const safeSendError = (statusCode: number, error: string) => {
       console.log(`[DEBUG] safeSendError called: statusCode=${statusCode}, error="${error}", headersSent=${res.headersSent}, responseSent=${responseSent}`);
       if (!res.headersSent && !responseSent) {
@@ -978,7 +1039,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error(`[ERROR] headersSent: ${res.headersSent}, responseSent: ${responseSent}`);
       }
     };
-    
+
     try {
       const userToken = (req as any).userToken;
       const { model, temperature, max_tokens, top_p, ...otherParams } = req.body;
@@ -996,11 +1057,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Find the model and provider
       const allModels = await storage.getModels();
       const providers = await storage.getProviders();
-      
+
       // Try to match model in different formats
       let targetModel: any = null;
       let provider: any = null;
-      
+
       // Format 1: modelId (Provider Name)
       const providerMatch = model.match(/^(.+?)\s+\((.+?)\)$/);
       if (providerMatch) {
@@ -1011,7 +1072,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           targetModel = allModels.find((m) => m.modelId === modelId && m.providerId === provider.id);
         }
       }
-      
+
       // Format 2: Just modelId (search regardless of enabled status)
       if (!targetModel) {
         targetModel = allModels.find((m) => m.modelId === model);
@@ -1039,11 +1100,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           models.some(m => m.id === targetModel.id)
         );
         const providerExists = await storage.getProvider(provider.id);
-        
+
         if (!modelExists) {
           return safeSendError(404, `Model '${model}' no longer exists`);
         }
-        
+
         if (!providerExists) {
           return safeSendError(404, `Provider for model '${model}' no longer exists`);
         }
@@ -1074,7 +1135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const messagesPayload = JSON.stringify(requestBody.messages || []);
       const cacheKey = `${userToken.id}:${messagesPayload}`;
       const now = Date.now();
-      
+
       // Clean old cache entries
       payloadCache.forEach((value, key) => {
         if (now - value.timestamp > CACHE_TTL) {
@@ -1153,7 +1214,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Authorization: `Bearer ${apiKey.key}`,
         ...(provider.customHeaders || {}),
       };
-      
+
       console.log("[PROXY] Request Headers:", headers);
 
       const response = await fetch(`${provider.baseUrl}/chat/completions`, {
@@ -1183,7 +1244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let streamedContent = ""; // Collect streamed content for estimation
         let streamOutputTokens = 0; // Track output tokens from usage data
         let streamInputTokens = 0; // Track input tokens from usage data
-        
+
         // FIX: Track tool calls to handle them properly
         let hasToolCalls = false;
         let toolCallChunks: string[] = [];
@@ -1196,7 +1257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            
+
             const chunk = decoder.decode(value, { stream: true });
 
             // Try to extract token usage from SSE chunks if available
@@ -1233,14 +1294,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (line.startsWith('data: ') && !line.includes('[DONE]')) {
                   const jsonStr = line.slice(6);
                   const parsed = JSON.parse(jsonStr);
-                  
+
                   // FIX: Detect and handle tool calls
                   if (parsed.choices && parsed.choices[0]?.delta?.tool_calls) {
                     hasToolCalls = true;
                     console.log(`[DEBUG] Tool call detected in stream:`, JSON.stringify(parsed.choices[0].delta.tool_calls));
                     toolCallChunks.push(jsonStr);
                   }
-                  
+
                   if (parsed.choices && parsed.choices[0]?.delta?.content) {
                     streamedContent += parsed.choices[0].delta.content;
                   }
@@ -1253,7 +1314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // FIX: Always forward the chunk to maintain streaming
             res.write(value);
           }
-          
+
           // FIX: For tool calls, ensure proper stream termination
           if (hasToolCalls) {
             console.log(`[DEBUG] Tool calls detected, ensuring proper stream termination`);
@@ -1342,7 +1403,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           await storage.decrementActiveRequests();
           console.log(`[DEBUG] Ending streaming response, headersSent: ${res.headersSent}, hasToolCalls: ${hasToolCalls}`);
-          
+
           // CRITICAL FIX: ALWAYS call res.end() for streaming responses to prevent hanging
           // Even if headers are sent, we must properly terminate the connection
           try {

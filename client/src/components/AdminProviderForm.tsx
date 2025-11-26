@@ -6,32 +6,33 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { Plus, Trash2, CheckCircle, Edit2 } from "lucide-react";
 import { api } from "@/lib/api";
-import { CheckCircle, Plus, Trash2, Edit2 } from "lucide-react";
 
 interface AdminProviderFormProps {
-  authToken: string;
   editProvider?: any;
   onEditComplete?: () => void;
-  onSearchChange?: (search: string) => void;
+  onSearchChange?: (query: string) => void;
 }
 
-export function AdminProviderForm({ authToken, editProvider, onEditComplete, onSearchChange }: AdminProviderFormProps) {
+export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange }: AdminProviderFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
+
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [disableCacheDiscount, setDisableCacheDiscount] = useState(false);
   const [customHeadersJson, setCustomHeadersJson] = useState("");
-  const [providerId, setProviderId] = useState<string | null>(null);
   const [apiKeys, setApiKeys] = useState<string[]>([""]);
   const [apiKeyIds, setApiKeyIds] = useState<string[]>([]);
-  const [modelCount, setModelCount] = useState<number | null>(null);
   const [editingKeyIndex, setEditingKeyIndex] = useState<number | null>(null);
+  const [modelCount, setModelCount] = useState<number | null>(null);
   const [modelSearch, setModelSearch] = useState("");
+
+  const providerId = editProvider?.id;
 
   useEffect(() => {
     if (editProvider) {
@@ -39,48 +40,30 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
       setBaseUrl(editProvider.baseUrl);
       setEnabled(editProvider.enabled);
       setDisableCacheDiscount(editProvider.disableCacheDiscount || false);
-      setCustomHeadersJson(editProvider.customHeaders ? JSON.stringify(editProvider.customHeaders, null, 2) : "");
-      setProviderId(editProvider.id);
-      loadProviderKeys(editProvider.id);
+      setCustomHeadersJson(
+        editProvider.customHeaders
+          ? JSON.stringify(editProvider.customHeaders, null, 2)
+          : ""
+      );
+      // Fetch keys
+      api.getProviderKeys(editProvider.id).then((keys: any[]) => {
+        setApiKeys(keys.map((k) => k.key));
+        setApiKeyIds(keys.map((k) => k.id));
+      });
+    } else {
+      setName("");
+      setBaseUrl("");
+      setEnabled(true);
+      setDisableCacheDiscount(false);
+      setCustomHeadersJson("");
+      setApiKeys([""]);
+      setApiKeyIds([]);
+      setModelCount(null);
     }
   }, [editProvider]);
 
-  const loadProviderKeys = async (provId: string) => {
-    const keys = await api.getProviderKeys(authToken, provId);
-    setApiKeys(keys.map((k: any) => k.key));
-    setApiKeyIds(keys.map((k: any) => k.id));
-  };
-
   const addApiKey = () => {
     setApiKeys([...apiKeys, ""]);
-    setApiKeyIds([...apiKeyIds, ""]); // Also add a placeholder for the new key's ID
-  };
-
-  const removeApiKey = async (index: number) => {
-    const keyId = apiKeyIds[index];
-
-    if (keyId) {
-      try {
-        await api.deleteKey(authToken, keyId);
-        toast({
-          title: "API Key Deleted",
-          description: "API key has been deleted successfully.",
-        });
-        queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
-      } catch (error: any) {
-        toast({
-          title: "Error",
-          description: error.message || "Failed to delete API key",
-          variant: "destructive",
-        });
-        return; // Prevent state update if API call fails
-      }
-    }
-
-    const newKeys = apiKeys.filter((_, i) => i !== index);
-    const newApiKeyIds = apiKeyIds.filter((_, i) => i !== index);
-    setApiKeys(newKeys);
-    setApiKeyIds(newApiKeyIds);
   };
 
   const updateApiKey = (index: number, value: string) => {
@@ -89,57 +72,59 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
     setApiKeys(newKeys);
   };
 
-  const saveKeyEdit = async (index: number) => {
-    const keyId = apiKeyIds[index];
-    const newKey = apiKeys[index];
-
-    if (!keyId) {
-      // This is a new key, just update the state
-      setEditingKeyIndex(null);
-      return;
+  const removeApiKey = async (index: number) => {
+    if (editProvider && apiKeyIds[index]) {
+      try {
+        await api.deleteKey(apiKeyIds[index]);
+        const newKeys = [...apiKeys];
+        newKeys.splice(index, 1);
+        setApiKeys(newKeys);
+        const newIds = [...apiKeyIds];
+        newIds.splice(index, 1);
+        setApiKeyIds(newIds);
+        toast({ title: "Key deleted" });
+      } catch (error) {
+        toast({
+          title: "Error deleting key",
+          variant: "destructive",
+        });
+      }
+    } else {
+      const newKeys = [...apiKeys];
+      newKeys.splice(index, 1);
+      setApiKeys(newKeys);
     }
+  };
 
+  const saveKeyEdit = async (index: number) => {
+    if (!editProvider || !apiKeyIds[index]) return;
     try {
-      await api.updateApiKey(authToken, keyId, newKey);
-      toast({
-        title: "API Key Updated",
-        description: "API key has been updated successfully.",
-      });
+      await api.updateApiKey(apiKeyIds[index], apiKeys[index]);
       setEditingKeyIndex(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
-    } catch (error: any) {
+      toast({ title: "Key updated" });
+    } catch (error) {
       toast({
-        title: "Error",
-        description: error.message || "Failed to update API key",
+        title: "Error updating key",
         variant: "destructive",
       });
     }
   };
 
   const handleCheckModels = async () => {
-    if (!providerId) {
-      toast({
-        title: "Error",
-        description: "Please save the provider first",
-        variant: "destructive",
-      });
-      return;
-    }
-
+    if (!providerId) return;
     setChecking(true);
     try {
-      const result = await api.checkProviderModels(authToken, providerId);
+      const result = await api.checkProviderModels(providerId);
       setModelCount(result.count);
       toast({
         title: "Models Checked",
-        description: `Found ${result.count} models from this provider (sorted alphabetically)`,
+        description: `Found ${result.count} models`,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
+      queryClient.invalidateQueries({ queryKey: ["models", providerId] });
     } catch (error: any) {
       toast({
-        title: "Error",
-        description: error.message || "Failed to check models",
+        title: "Error checking models",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -152,79 +137,41 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
     setLoading(true);
 
     try {
-      let customHeaders: Record<string, string> | undefined;
-      
+      let customHeaders;
       if (customHeadersJson.trim()) {
         try {
           customHeaders = JSON.parse(customHeadersJson);
         } catch (e) {
-          toast({
-            title: "Invalid JSON",
-            description: "Custom headers must be valid JSON format",
-            variant: "destructive",
-          });
-          setLoading(false);
-          return;
+          throw new Error("Invalid JSON for custom headers");
         }
       }
 
-      let provider;
-      if (editProvider) {
-        provider = await api.updateProvider(authToken, editProvider.id, {
-          name,
-          baseUrl,
-          enabled,
-          customHeaders,
-          disableCacheDiscount,
-        });
-      } else {
-        provider = await api.createProvider(authToken, {
-          name,
-          baseUrl,
-          enabled,
-          customHeaders,
-          disableCacheDiscount,
-        });
-      }
-
-      setProviderId(provider.id);
+      const providerData = {
+        name,
+        baseUrl,
+        enabled,
+        customHeaders,
+        disableCacheDiscount,
+      };
 
       if (editProvider) {
-        // Logic to update, add, or remove keys for an existing provider
-        const existingKeys = await api.getProviderKeys(authToken, editProvider.id);
-        const existingKeyMap = new Map(existingKeys.map((k: any) => [k.id, k]));
-
-        // Keys to delete
-        const keysToDelete = existingKeys.filter((k: any) => !apiKeyIds.includes(k.id));
-        for (const key of keysToDelete) {
-          await api.deleteKey(authToken, key.id);
-        }
-
-        // Keys to add or update
-        for (let i = 0; i < apiKeys.length; i++) {
-          const key = apiKeys[i].trim();
-          const keyId = apiKeyIds[i];
-
-          if (key) {
-            if (keyId && existingKeyMap.has(keyId)) {
-              // Update existing key if it has changed
-              if (existingKeyMap.get(keyId).key !== key) {
-                await api.updateApiKey(authToken, keyId, key);
-              }
-            } else {
-              // Add new key
-              await api.addProviderKey(authToken, provider.id, key);
-            }
-          }
+        await api.updateProvider(editProvider.id, providerData);
+        // Handle new keys for existing provider
+        const newKeys = apiKeys.filter((_, i) => !apiKeyIds[i] && apiKeys[i]);
+        for (const key of newKeys) {
+          await api.addProviderKey(editProvider.id, key);
         }
       } else {
-        // Logic for a new provider
-        for (const key of apiKeys.filter((k) => k.trim())) {
-          await api.addProviderKey(authToken, provider.id, key);
+        const newProvider = await api.createProvider(providerData);
+        // Add keys
+        const validKeys = apiKeys.filter((k) => k.trim());
+        for (const key of validKeys) {
+          await api.addProviderKey(newProvider.id, key);
         }
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
 
       toast({
         title: editProvider ? "Provider Updated" : "Provider Created",
@@ -289,10 +236,10 @@ export function AdminProviderForm({ authToken, editProvider, onEditComplete, onS
 
         <div className="flex items-center space-x-2">
           <Label htmlFor="disable-cache-discount">Disable Cache Discount</Label>
-          <Switch 
-            id="disable-cache-discount" 
-            checked={disableCacheDiscount} 
-            onCheckedChange={setDisableCacheDiscount} 
+          <Switch
+            id="disable-cache-discount"
+            checked={disableCacheDiscount}
+            onCheckedChange={setDisableCacheDiscount}
           />
         </div>
         {disableCacheDiscount && (

@@ -2,6 +2,8 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { storage } from "./storage";
+import bcrypt from "bcrypt";
 
 const app = express();
 app.use(express.json({ limit: '4mb' }));
@@ -40,14 +42,20 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  // Log admin credentials on startup
-  const adminUsername = process.env.ADMIN_USERNAME || "admin";
-  const adminPassword = process.env.ADMIN_PASSWORD || "admin";
-  console.log("=".repeat(50));
-  console.log("ADMIN CREDENTIALS:");
-  console.log(`  Username: ${adminUsername}`);
-  console.log(`  Password: ${adminPassword}`);
-  console.log("=".repeat(50));
+  // Seed initial admin if needed
+  try {
+    const adminUsername = process.env.ADMIN_USERNAME || "admin";
+    const existingAdmin = await storage.getAdmin(adminUsername);
+
+    if (!existingAdmin) {
+      const password = process.env.ADMIN_PASSWORD || "admin";
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await storage.createAdmin(adminUsername, hashedPassword);
+      log(`Created initial admin user: ${adminUsername}`);
+    }
+  } catch (error) {
+    console.error("Failed to seed initial admin:", error);
+  }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
