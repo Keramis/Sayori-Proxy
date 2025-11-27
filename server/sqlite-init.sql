@@ -16,6 +16,11 @@ DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS admins;
 DROP TABLE IF EXISTS system_config;
 
+DROP TRIGGER IF EXISTS promote_child_usage_on_delete;
+DROP TRIGGER IF EXISTS nullify_parent_usage_on_delete;
+DROP TRIGGER IF EXISTS soft_delete_keys_on_provider_delete;
+DROP TRIGGER IF EXISTS cascade_soft_delete_to_subkeys;
+
 CREATE TABLE providers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -190,7 +195,7 @@ BEGIN
     UPDATE user_tokens 
     SET deleted_at = NEW.deleted_at
     WHERE parent_token_id = NEW.id AND deleted_at IS NULL;
-END
+END;
 
 INSERT INTO system_config (key, value, updated_at) VALUES
 ('auth_mode', '"user_tokens"', strftime('%s', 'now')),
