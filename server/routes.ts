@@ -194,27 +194,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/logout", (req: Request, res: Response) => {
-    req.session.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ error: "Could not log out" });
-      }
-      res.json({ success: true });
-    });
-  });
+  // app.post("/api/admin/logout", (req: Request, res: Response) => {
+  //   req.session.destroy((err) => {
+  //     if (err) {
+  //       return res.status(500).json({ error: "Could not log out" });
+  //     }
+  //     res.json({ success: true });
+  //   });
+  // });
 
-  app.get("/api/admin/me", async (req: Request, res: Response) => {
-    if (!(req.session as any).adminId) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
+  // app.get("/api/admin/me", async (req: Request, res: Response) => {
+  //   if (!(req.session as any).adminId) {
+  //     return res.status(401).json({ error: "Not authenticated" });
+  //   }
 
-    // We could fetch the admin details here if needed, but for now just returning success
-    // const admin = await storage.getAdminById((req.session as any).adminId);
-    res.json({
-      authenticated: true,
-      adminId: (req.session as any).adminId
-    });
-  });
+  //   // We could fetch the admin details here if needed, but for now just returning success
+  //   // const admin = await storage.getAdminById((req.session as any).adminId);
+  //   res.json({
+  //     authenticated: true,
+  //     adminId: (req.session as any).adminId
+  //   });
+  // });
 
 
 

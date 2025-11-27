@@ -157,6 +157,32 @@ BEGIN
     WHERE user_token_id = OLD.id;
 END;
 
+CREATE TRIGGER soft_delete_keys_on_provider_delete
+BEFORE DELETE ON providers
+FOR EACH ROW
+BEGIN
+    UPDATE user_tokens 
+    SET deleted_at = strftime('%s', 'now')
+    WHERE key_type = 'master' 
+    AND (
+        allowed_providers IS NULL 
+        OR allowed_providers = '["' || OLD.id || '"]'
+        OR allowed_providers LIKE '[' || OLD.id || ',%'
+        OR allowed_providers LIKE '%,' || OLD.id || ',%'
+        OR allowed_providers LIKE '%,' || OLD.id || ']'
+    );
+END
+
+CREATE TRIGGER cascade_soft_delete_to_subkeys
+AFTER UPDATE OF deleted_at ON user_tokens
+FOR EACH ROW
+WHEN NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL
+BEGIN
+    UPDATE user_tokens 
+    SET deleted_at = NEW.deleted_at
+    WHERE parent_token_id = NEW.id AND deleted_at IS NULL;
+END
+
 INSERT INTO system_config (key, value, updated_at) VALUES
 ('auth_mode', '"user_tokens"', strftime('%s', 'now')),
 ('general_password', 'NULL', strftime('%s', 'now')),
@@ -222,6 +248,32 @@ BEGIN
     UPDATE usage_records 
     SET user_token_id = NULL 
     WHERE user_token_id = OLD.id;
+END;
+
+-- Add the trigger to soft delete keys when provider is deleted
+CREATE TRIGGER soft_delete_keys_on_provider_delete
+BEFORE DELETE ON providers
+FOR EACH ROW
+BEGIN
+    UPDATE user_tokens 
+    SET deleted_at = strftime('%s', 'now')
+    WHERE key_type = 'master' 
+    AND id IN (
+        SELECT api_keys.id 
+        FROM api_keys 
+        WHERE api_keys.provider_id = OLD.id
+    );
+END;
+
+-- Trigger to cascade deleted_at to subkeys when a parent token is soft deleted
+CREATE TRIGGER cascade_soft_delete_to_subkeys
+AFTER UPDATE OF deleted_at ON user_tokens
+FOR EACH ROW
+WHEN NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL
+BEGIN
+    UPDATE user_tokens 
+    SET deleted_at = NEW.deleted_at
+    WHERE parent_token_id = NEW.id AND deleted_at IS NULL;
 END;
 
 -- 8. Re-enable foreign keys

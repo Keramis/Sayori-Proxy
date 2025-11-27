@@ -70,7 +70,6 @@ export function AdminProviderList({ }: AdminProviderListProps) {
         title: "Provider Deleted",
         description: "Provider has been deleted successfully",
       });
-      // Force a full refresh to clear any cached provider/key data in the admin UI
       window.location.reload();
     } catch (error: any) {
       toast({
