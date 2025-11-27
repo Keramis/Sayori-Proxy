@@ -5,9 +5,16 @@ PRAGMA wal_autocheckpoint = 1000;
 PRAGMA cache_size = 10000;
 PRAGMA temp_store = memory;
 
+
+
+
 -- Init clear
-DROP TRIGGER IF EXISTS udpate_total_tokens_insert;
+DROP TRIGGER IF EXISTS update_total_tokens_insert;   -- fix the typo from udpate→update
 DROP TRIGGER IF EXISTS update_total_tokens_delete;
+DROP TRIGGER IF EXISTS promote_child_usage_on_delete;
+DROP TRIGGER IF EXISTS nullify_parent_usage_on_delete;
+DROP TRIGGER IF EXISTS soft_delete_keys_on_provider_delete;
+DROP TRIGGER IF EXISTS cascade_soft_delete_to_subkeys;
 DROP TABLE IF EXISTS usage_records;
 DROP TABLE IF EXISTS user_tokens;
 DROP TABLE IF EXISTS models;
@@ -15,11 +22,6 @@ DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS admins;
 DROP TABLE IF EXISTS system_config;
-
-DROP TRIGGER IF EXISTS promote_child_usage_on_delete;
-DROP TRIGGER IF EXISTS nullify_parent_usage_on_delete;
-DROP TRIGGER IF EXISTS soft_delete_keys_on_provider_delete;
-DROP TRIGGER IF EXISTS cascade_soft_delete_to_subkeys;
 
 CREATE TABLE providers (
     id TEXT PRIMARY KEY,
@@ -185,7 +187,7 @@ BEGIN
         OR allowed_providers LIKE '%,' || OLD.id || ',%'
         OR allowed_providers LIKE '%,' || OLD.id || ']'
     );
-END
+END;
 
 CREATE TRIGGER cascade_soft_delete_to_subkeys
 AFTER UPDATE OF deleted_at ON user_tokens
