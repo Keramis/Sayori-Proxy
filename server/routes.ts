@@ -203,18 +203,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   //   });
   // });
 
-  // app.get("/api/admin/me", async (req: Request, res: Response) => {
-  //   if (!(req.session as any).adminId) {
-  //     return res.status(401).json({ error: "Not authenticated" });
-  //   }
+  app.get("/api/admin/me", async (req: Request, res: Response) => {
+    if (!(req.session as any).adminId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
 
-  //   // We could fetch the admin details here if needed, but for now just returning success
-  //   // const admin = await storage.getAdminById((req.session as any).adminId);
-  //   res.json({
-  //     authenticated: true,
-  //     adminId: (req.session as any).adminId
-  //   });
-  // });
+    // We could fetch the admin details here if needed, but for now just returning success
+    // const admin = await storage.getAdminById((req.session as any).adminId);
+    res.json({
+      authenticated: true,
+      adminId: (req.session as any).adminId
+    });
+  });
 
 
 
@@ -230,13 +230,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Check auth status
-  app.get("/api/admin/me", (req, res) => {
-    if ((req.session as any).userId) {
-      res.json({ authenticated: true, username: (req.session as any).username });
-    } else {
-      res.status(401).json({ authenticated: false });
-    }
-  });
+  // app.get("/api/admin/me", (req, res) => {
+  //   if ((req.session as any).userId) {
+  //     res.json({ authenticated: true, username: (req.session as any).username });
+  //   } else {
+  //     res.status(401).json({ authenticated: false });
+  //   }
+  // });
 
   app.use('/api/admin', adminApiRateLimit);
 
