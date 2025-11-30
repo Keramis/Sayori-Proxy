@@ -70,6 +70,7 @@ export function AdminProviderList({ }: AdminProviderListProps) {
         title: "Provider Deleted",
         description: "Provider has been deleted successfully",
       });
+      window.location.reload();
     } catch (error: any) {
       toast({
         title: "Error",

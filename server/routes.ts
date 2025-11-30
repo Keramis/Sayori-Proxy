@@ -194,15 +194,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/logout", (req: Request, res: Response) => {
-    req.session.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ error: "Could not log out" });
-      }
-      res.json({ success: true });
-    });
-  });
-
   app.get("/api/admin/me", async (req: Request, res: Response) => {
     if (!(req.session as any).adminId) {
       return res.status(401).json({ error: "Not authenticated" });
@@ -227,15 +218,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.clearCookie("connect.sid");
       res.json({ success: true });
     });
-  });
-
-  // Check auth status
-  app.get("/api/admin/me", (req, res) => {
-    if ((req.session as any).userId) {
-      res.json({ authenticated: true, username: (req.session as any).username });
-    } else {
-      res.status(401).json({ authenticated: false });
-    }
   });
 
   app.use('/api/admin', adminApiRateLimit);

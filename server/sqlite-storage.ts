@@ -33,6 +33,7 @@ export class SQLiteStorage implements IStorage {
 
     // Initialize database
     this.db = new Database(databasePath);
+    this.db.pragma('foreign_keys = ON');
     this.initializeDatabase();
   }
 
@@ -440,23 +441,50 @@ export class SQLiteStorage implements IStorage {
   }
 
   async replaceProviderModels(providerId: string, modelIds: string[]): Promise<Model[]> {
-    const transaction = this.db.transaction(() => {
-      try {
-        // Delete existing models for this provider
-        const deleteStmt = this.db.prepare('DELETE FROM models WHERE provider_id = ?');
-        deleteStmt.run(providerId);
-
-        // Create new models
-        const newModels: Model[] = [];
-        for (const modelId of modelIds) {
+  const transaction = this.db.transaction(() => {
+    try {
+      // Get existing models for this provider
+      const existingStmt = this.db.prepare('SELECT * FROM models WHERE provider_id = ?');
+      const existingModels = existingStmt.all(providerId).map(this.rowToModel);
+      
+      // Create a Set of new model IDs for quick lookup
+      const newModelIdSet = new Set(modelIds);
+      
+      // Create a Map of existing models by modelId
+      const existingModelMap = new Map(
+        existingModels.map(m => [m.modelId, m])
+      );
+      
+      const resultModels: Model[] = [];
+      
+      // Process new models: add if they don't exist, re-enable if they do
+      for (const modelId of modelIds) {
+        const existing = existingModelMap.get(modelId);
+        
+        if (existing) {
+          // Model exists - if it was disabled, re-enable it (model came back!)
+          if (!existing.enabled) {
+            const updateStmt = this.db.prepare('UPDATE models SET enabled = 1 WHERE id = ?');
+            updateStmt.run(existing.id);
+            
+            resultModels.push({
+              ...existing,
+              enabled: true,
+            });
+          } else {
+            // Model already exists and is enabled - keep as-is
+            resultModels.push(existing);
+          }
+        } else {
+          // New model - create it
           const id = randomUUID();
           const insertStmt = this.db.prepare(`
             INSERT INTO models (id, provider_id, model_id, enabled, request_cost)
             VALUES (?, ?, ?, ?, ?)
           `);
           insertStmt.run(id, providerId, modelId, 1, 1);
-
-          newModels.push({
+          
+          resultModels.push({
             id,
             providerId,
             modelId,
@@ -464,16 +492,31 @@ export class SQLiteStorage implements IStorage {
             requestCost: 1,
           });
         }
-
-        return newModels;
-      } catch (error) {
-        console.error('Error in replaceProviderModels transaction:', error);
-        throw error;
       }
-    });
+      
+      // Disable old models (preserves historical data)
+      for (const existing of existingModels) {
+        if (!newModelIdSet.has(existing.modelId)) {
+          const updateStmt = this.db.prepare('UPDATE models SET enabled = 0 WHERE id = ?');
+          updateStmt.run(existing.id);
+          
+          resultModels.push({
+            ...existing,
+            enabled: false,
+          });
+        }
+      }
+      
+      return resultModels;
+    } catch (error) {
+      console.error('Error in replaceProviderModels transaction:', error);
+      throw error;
+    }
+  });
 
-    return transaction();
-  }
+  return transaction();
+}
+
 
   async updateModelsByProvider(providerId: string, updates: Partial<InsertModel>): Promise<Model[]> {
     const transaction = this.db.transaction(() => {
@@ -530,7 +573,7 @@ export class SQLiteStorage implements IStorage {
   // User Token methods
   async getUserTokens(): Promise<UserToken[]> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens ORDER BY created_at DESC');
+      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE deleted_at IS NULL ORDER BY created_at DESC');
       const rows = stmt.all();
       return rows.map(this.rowToUserToken);
     } catch (error) {
@@ -541,7 +584,7 @@ export class SQLiteStorage implements IStorage {
 
   async getUserToken(token: string): Promise<UserToken | undefined> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE token = ?');
+      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE token = ? AND deleted_at IS NULL');
       const row = stmt.get(token);
       return row ? this.rowToUserToken(row) : undefined;
     } catch (error) {
@@ -552,7 +595,7 @@ export class SQLiteStorage implements IStorage {
 
   async getUserTokenById(id: string): Promise<UserToken | undefined> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ?');
+      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ? AND deleted_at IS NULL');
       const row = stmt.get(id);
       return row ? this.rowToUserToken(row) : undefined;
     } catch (error) {
@@ -664,8 +707,9 @@ export class SQLiteStorage implements IStorage {
 
   async deleteUserToken(id: string): Promise<boolean> {
     try {
-      const stmt = this.db.prepare('DELETE FROM user_tokens WHERE id = ?');
-      const result = stmt.run(id);
+      // const stmt = this.db.prepare('DELETE FROM user_tokens WHERE id = ?');
+      const stmt = this.db.prepare('UPDATE user_tokens SET deleted_at = ? WHERE id = ?');
+      const result = stmt.run(Date.now(), id);
       return result.changes > 0;
     } catch (error) {
       console.error('Error deleting user token:', error);
@@ -676,7 +720,7 @@ export class SQLiteStorage implements IStorage {
   // Sub-key specific methods
   async getSubKeys(parentTokenId: string): Promise<UserToken[]> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE parent_token_id = ? ORDER BY created_at DESC');
+      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE parent_token_id = ? AND deleted_at IS NULL ORDER BY created_at DESC');
       const rows = stmt.all(parentTokenId);
       return rows.map(this.rowToUserToken);
     } catch (error) {
@@ -693,7 +737,7 @@ export class SQLiteStorage implements IStorage {
       const maxIterations = 100; // Prevent infinite loops - bandaid solution honestly, idfk why but i couldnt think of a better solution adn this works so yeah
 
       while (currentId && iterations < maxIterations) {
-        const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ?');
+        const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ? AND deleted_at IS NULL');
         const row: any = stmt.get(currentId);
 
         if (!row) break;
@@ -727,11 +771,11 @@ export class SQLiteStorage implements IStorage {
   async getTotalAllocatedQuota(parentTokenId: string): Promise<{ rpd: number; rpm: number }> {
     try {
       const stmt = this.db.prepare(`
-        SELECT 
+        SELECT
           COALESCE(SUM(max_rpd), 0) as total_rpd,
           COALESCE(SUM(max_rpm), 0) as total_rpm
-        FROM user_tokens 
-        WHERE parent_token_id = ?
+        FROM user_tokens
+        WHERE parent_token_id = ? AND deleted_at IS NULL
       `);
       const result = stmt.get(parentTokenId) as { total_rpd: number; total_rpm: number };
 
