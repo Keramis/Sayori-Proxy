@@ -142,6 +142,60 @@ async function flexibleAuth(req: Request, res: Response, next: Function) {
   return userTokenAuth(req, res, next);
 }
 
+// Shared helper to fetch models for a provider and persist them
+async function syncProviderModels(providerId: string) {
+  const provider = await storage.getProvider(providerId);
+  if (!provider) {
+    throw new Error("Provider not found");
+  }
+
+  const apiKey = await storage.getNextApiKey(provider.id);
+  if (!apiKey) {
+    throw new Error("No API keys configured");
+  }
+
+  // Normalize base URL - remove trailing slash
+  const baseUrl = provider.baseUrl.replace(/\/$/, "");
+  const modelsUrl = `${baseUrl}/models`;
+
+  console.log(`[MODEL SYNC] Fetching models from: ${modelsUrl}`);
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey.key}`,
+    ...(provider.customHeaders || {}),
+  };
+
+  console.log("[MODEL SYNC] Request Headers:", headers);
+
+  const response = await fetch(modelsUrl, { headers });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ""}`);
+  }
+
+  const data = await response.json();
+  console.log("[MODEL SYNC] Received data:", JSON.stringify(data).substring(0, 200));
+
+  let modelIds: string[] = [];
+  if (data.data && Array.isArray(data.data)) {
+    modelIds = data.data.map((m: any) => m.id).filter(Boolean);
+  } else if (Array.isArray(data)) {
+    modelIds = data.map((m: any) => m.id).filter(Boolean);
+  } else {
+    throw new Error("Unexpected response format from provider");
+  }
+
+  if (modelIds.length === 0) {
+    throw new Error("No models found in provider response");
+  }
+
+  const sortedModelIds = modelIds.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const models = await storage.replaceProviderModels(provider.id, sortedModelIds);
+
+  return { models, count: models.length };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Enable CORS
   app.use(cors({
@@ -717,7 +771,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const provider = await storage.createProvider(data);
-      res.json(provider);
+
+      // Immediately sync models for the newly created provider, but don't block creation on failure
+      let modelSync: { success: boolean; count?: number; error?: string } | undefined;
+      try {
+        const result = await syncProviderModels(provider.id);
+        modelSync = { success: true, count: result.count };
+      } catch (syncError: any) {
+        console.error("Auto model sync failed:", syncError);
+        modelSync = { success: false, error: syncError.message };
+      }
+
+      res.json({ ...provider, modelSync });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -792,68 +857,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/providers/:id/check-models", adminAuth, async (req: Request, res: Response) => {
     try {
-      const provider = await storage.getProvider(req.params.id);
-      if (!provider) {
-        return res.status(404).json({ error: "Provider not found" });
-      }
-
-      const apiKey = await storage.getNextApiKey(provider.id);
-      if (!apiKey) {
-        return res.status(400).json({ error: "No API keys configured" });
-      }
-
-      // Normalize base URL - remove trailing slash
-      const baseUrl = provider.baseUrl.replace(/\/$/, '');
-
-      // Construct the models endpoint URL
-      const modelsUrl = `${baseUrl}/models`;
-
-      console.log(`Fetching models from: ${modelsUrl}`);
-
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey.key}`,
-        ...(provider.customHeaders || {}),
-      };
-
-      console.log("[MODEL CHECK] Request Headers:", headers);
-
-      // Fetch models from provider
-      const response = await fetch(modelsUrl, {
-        headers,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Model fetch failed: ${response.status} ${response.statusText}`, errorText);
-        throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('Received data:', JSON.stringify(data).substring(0, 200));
-
-      // Handle different response formats
-      let modelIds: string[] = [];
-      if (data.data && Array.isArray(data.data)) {
-        modelIds = data.data.map((m: any) => m.id).filter(Boolean);
-      } else if (Array.isArray(data)) {
-        modelIds = data.map((m: any) => m.id).filter(Boolean);
-      } else {
-        throw new Error('Unexpected response format from provider');
-      }
-
-      if (modelIds.length === 0) {
-        throw new Error('No models found in provider response');
-      }
-
-      // Sort model IDs alphabetically
-      const sortedModelIds = modelIds.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-
-      // Replace all models for the provider in a single operation
-      const models = await storage.replaceProviderModels(provider.id, sortedModelIds);
-
-      res.json({ models, count: models.length });
+      const result = await syncProviderModels(req.params.id);
+      res.json(result);
     } catch (error: any) {
       console.error('Check models error:', error);
+
+      // Map some expected errors to friendlier status codes
+      if (error.message === "Provider not found") {
+        return res.status(404).json({ error: error.message });
+      }
+      if (error.message === "No API keys configured") {
+        return res.status(400).json({ error: error.message });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
