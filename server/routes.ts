@@ -143,6 +143,8 @@ async function flexibleAuth(req: Request, res: Response, next: Function) {
 }
 
 // Shared helper to fetch models for a provider and persist them
+const MODEL_SYNC_TIMEOUT_MS = 10_000;
+
 async function syncProviderModels(providerId: string) {
   const provider = await storage.getProvider(providerId);
   if (!provider) {
@@ -167,7 +169,20 @@ async function syncProviderModels(providerId: string) {
 
   console.log("[MODEL SYNC] Request Headers:", headers);
 
-  const response = await fetch(modelsUrl, { headers });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MODEL_SYNC_TIMEOUT_MS);
+
+  let response: globalThis.Response;
+  try {
+    response = await fetch(modelsUrl, { headers, signal: controller.signal });
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error(`Model fetch timed out after ${MODEL_SYNC_TIMEOUT_MS / 1000} seconds`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
