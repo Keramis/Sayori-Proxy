@@ -772,17 +772,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const provider = await storage.createProvider(data);
 
-      // Immediately sync models for the newly created provider, but don't block creation on failure
-      let modelSync: { success: boolean; count?: number; error?: string } | undefined;
-      try {
-        const result = await syncProviderModels(provider.id);
-        modelSync = { success: true, count: result.count };
-      } catch (syncError: any) {
-        console.error("Auto model sync failed:", syncError);
-        modelSync = { success: false, error: syncError.message };
-      }
-
-      res.json({ ...provider, modelSync });
+      // Skip auto-sync at creation time because providers normally have no keys yet.
+      res.json(provider);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -826,7 +817,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         providerId: req.params.id,
       });
       const key = await storage.createApiKey(data);
-      res.json(key);
+
+      // Auto-sync models now that we have at least one key
+      let modelSync: { success: boolean; count?: number; error?: string } | undefined;
+      try {
+        const result = await syncProviderModels(req.params.id);
+        modelSync = { success: true, count: result.count };
+      } catch (syncError: any) {
+        console.error("Auto model sync failed after adding key:", syncError);
+        modelSync = { success: false, error: syncError.message };
+      }
+
+      res.json({ ...key, modelSync });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
