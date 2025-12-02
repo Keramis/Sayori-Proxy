@@ -167,8 +167,6 @@ async function syncProviderModels(providerId: string) {
     ...(provider.customHeaders || {}),
   };
 
-  console.log("[MODEL SYNC] Request Headers:", headers);
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MODEL_SYNC_TIMEOUT_MS);
 
@@ -1229,8 +1227,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Authorization: `Bearer ${apiKey.key}`,
         ...(provider.customHeaders || {}),
       };
-
-      console.log("[PROXY] Request Headers:", headers);
 
       const response = await fetch(`${provider.baseUrl}/chat/completions`, {
         method: "POST",
