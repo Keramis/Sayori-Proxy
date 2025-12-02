@@ -57,7 +57,7 @@ const subkeyRenameRateLimit = rateLimit({
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   },
-})
+});
 const chatCompletionsRateLimit = rateLimit({
   windowMs: 1 * 1_000,
   max: 1,
@@ -68,7 +68,7 @@ const chatCompletionsRateLimit = rateLimit({
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   }
-})
+});
 
 
 import session from "express-session";
@@ -142,6 +142,73 @@ async function flexibleAuth(req: Request, res: Response, next: Function) {
   return userTokenAuth(req, res, next);
 }
 
+// Shared helper to fetch models for a provider and persist them
+const MODEL_SYNC_TIMEOUT_MS = 10_000;
+
+async function syncProviderModels(providerId: string) {
+  const provider = await storage.getProvider(providerId);
+  if (!provider) {
+    throw new Error("Provider not found");
+  }
+
+  const apiKey = await storage.getNextApiKey(provider.id);
+  if (!apiKey) {
+    throw new Error("No API keys configured");
+  }
+
+  // Normalize base URL - remove trailing slash
+  const baseUrl = provider.baseUrl.replace(/\/$/, "");
+  const modelsUrl = `${baseUrl}/models`;
+
+  console.log(`[MODEL SYNC] Fetching models from: ${modelsUrl}`);
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey.key}`,
+    ...(provider.customHeaders || {}),
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MODEL_SYNC_TIMEOUT_MS);
+
+  let response: globalThis.Response;
+  try {
+    response = await fetch(modelsUrl, { headers, signal: controller.signal });
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error(`Model fetch timed out after ${MODEL_SYNC_TIMEOUT_MS / 1000} seconds`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ""}`);
+  }
+
+  const data = await response.json();
+  console.log("[MODEL SYNC] Received data:", JSON.stringify(data).substring(0, 200));
+
+  let modelIds: string[] = [];
+  if (data.data && Array.isArray(data.data)) {
+    modelIds = data.data.map((m: any) => m.id).filter(Boolean);
+  } else if (Array.isArray(data)) {
+    modelIds = data.map((m: any) => m.id).filter(Boolean);
+  } else {
+    throw new Error("Unexpected response format from provider");
+  }
+
+  if (modelIds.length === 0) {
+    throw new Error("No models found in provider response");
+  }
+
+  const sortedModelIds = modelIds.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const models = await storage.replaceProviderModels(provider.id, sortedModelIds);
+
+  return { models, count: models.length };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Enable CORS
   app.use(cors({
@@ -167,6 +234,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public routes
 
 
+  app.get("/api/admin/me", async (req: Request, res: Response) => {
+    if (!(req.session as any).adminId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    // We could fetch the admin details here if needed, but for now just returning success
+    // const admin = await storage.getAdminById((req.session as any).adminId);
+    res.json({
+      authenticated: true,
+      adminId: (req.session as any).adminId
+    });
+  });
+  
+  app.use('/api/admin', adminApiRateLimit);
+  
   // Admin login
   app.post("/api/admin/login", adminLoginRateLimit, async (req: Request, res: Response) => {
     const { username, password } = req.body;
@@ -194,18 +276,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/me", async (req: Request, res: Response) => {
-    if (!(req.session as any).adminId) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    // We could fetch the admin details here if needed, but for now just returning success
-    // const admin = await storage.getAdminById((req.session as any).adminId);
-    res.json({
-      authenticated: true,
-      adminId: (req.session as any).adminId
-    });
-  });
 
 
 
@@ -219,8 +289,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     });
   });
-
-  app.use('/api/admin', adminApiRateLimit);
 
   // Get stats (public)
   app.get("/api/stats", async (req: Request, res: Response) => {
@@ -717,6 +785,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const provider = await storage.createProvider(data);
+
+      // Skip auto-sync at creation time because providers normally have no keys yet.
       res.json(provider);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -761,7 +831,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         providerId: req.params.id,
       });
       const key = await storage.createApiKey(data);
-      res.json(key);
+
+      // Auto-sync models now that we have at least one key
+      let modelSync: { success: boolean; count?: number; error?: string } | undefined;
+      try {
+        const result = await syncProviderModels(req.params.id);
+        modelSync = { success: true, count: result.count };
+      } catch (syncError: any) {
+        console.error("Auto model sync failed after adding key:", syncError);
+        modelSync = { success: false, error: syncError.message };
+      }
+
+      res.json({ ...key, modelSync });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -792,68 +873,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/providers/:id/check-models", adminAuth, async (req: Request, res: Response) => {
     try {
-      const provider = await storage.getProvider(req.params.id);
-      if (!provider) {
-        return res.status(404).json({ error: "Provider not found" });
-      }
-
-      const apiKey = await storage.getNextApiKey(provider.id);
-      if (!apiKey) {
-        return res.status(400).json({ error: "No API keys configured" });
-      }
-
-      // Normalize base URL - remove trailing slash
-      const baseUrl = provider.baseUrl.replace(/\/$/, '');
-
-      // Construct the models endpoint URL
-      const modelsUrl = `${baseUrl}/models`;
-
-      console.log(`Fetching models from: ${modelsUrl}`);
-
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey.key}`,
-        ...(provider.customHeaders || {}),
-      };
-
-      console.log("[MODEL CHECK] Request Headers:", headers);
-
-      // Fetch models from provider
-      const response = await fetch(modelsUrl, {
-        headers,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Model fetch failed: ${response.status} ${response.statusText}`, errorText);
-        throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('Received data:', JSON.stringify(data).substring(0, 200));
-
-      // Handle different response formats
-      let modelIds: string[] = [];
-      if (data.data && Array.isArray(data.data)) {
-        modelIds = data.data.map((m: any) => m.id).filter(Boolean);
-      } else if (Array.isArray(data)) {
-        modelIds = data.map((m: any) => m.id).filter(Boolean);
-      } else {
-        throw new Error('Unexpected response format from provider');
-      }
-
-      if (modelIds.length === 0) {
-        throw new Error('No models found in provider response');
-      }
-
-      // Sort model IDs alphabetically
-      const sortedModelIds = modelIds.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-
-      // Replace all models for the provider in a single operation
-      const models = await storage.replaceProviderModels(provider.id, sortedModelIds);
-
-      res.json({ models, count: models.length });
+      const result = await syncProviderModels(req.params.id);
+      res.json(result);
     } catch (error: any) {
       console.error('Check models error:', error);
+
+      // Map some expected errors to friendlier status codes
+      if (error.message === "Provider not found") {
+        return res.status(404).json({ error: error.message });
+      }
+      if (error.message === "No API keys configured") {
+        return res.status(400).json({ error: error.message });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -1196,8 +1228,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Authorization: `Bearer ${apiKey.key}`,
         ...(provider.customHeaders || {}),
       };
-
-      console.log("[PROXY] Request Headers:", headers);
 
       const response = await fetch(`${provider.baseUrl}/chat/completions`, {
         method: "POST",
