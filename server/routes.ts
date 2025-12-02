@@ -57,7 +57,7 @@ const subkeyRenameRateLimit = rateLimit({
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   },
-})
+});
 const chatCompletionsRateLimit = rateLimit({
   windowMs: 1 * 1_000,
   max: 1,
@@ -68,7 +68,7 @@ const chatCompletionsRateLimit = rateLimit({
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   }
-})
+});
 
 
 import session from "express-session";
@@ -234,6 +234,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public routes
 
 
+  app.get("/api/admin/me", async (req: Request, res: Response) => {
+    if (!(req.session as any).adminId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    // We could fetch the admin details here if needed, but for now just returning success
+    // const admin = await storage.getAdminById((req.session as any).adminId);
+    res.json({
+      authenticated: true,
+      adminId: (req.session as any).adminId
+    });
+  });
+  
+  app.use('/api/admin', adminApiRateLimit);
+  
   // Admin login
   app.post("/api/admin/login", adminLoginRateLimit, async (req: Request, res: Response) => {
     const { username, password } = req.body;
@@ -261,18 +276,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/me", async (req: Request, res: Response) => {
-    if (!(req.session as any).adminId) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    // We could fetch the admin details here if needed, but for now just returning success
-    // const admin = await storage.getAdminById((req.session as any).adminId);
-    res.json({
-      authenticated: true,
-      adminId: (req.session as any).adminId
-    });
-  });
 
 
 
@@ -286,8 +289,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     });
   });
-
-  app.use('/api/admin', adminApiRateLimit);
 
   // Get stats (public)
   app.get("/api/stats", async (req: Request, res: Response) => {
