@@ -25,7 +25,7 @@ export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }
     <Card className="overflow-hidden break-inside-avoid">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className={`w-full ${color} text-white p-4 flex items-center justify-between hover-elevate active-elevate-2`}
+        className={`w-full ${isExpanded ? 'animated-gradient' : color} text-white p-4 flex items-center justify-between hover-elevate active-elevate-2`}
         data-testid={`button-toggle-${provider.toLowerCase()}`}
       >
         <div className="flex items-center gap-3">

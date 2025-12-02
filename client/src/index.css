@@ -353,3 +353,20 @@
     inset: -1px;
   }
 }
+
+@layer utilities {
+  .animated-gradient {
+    background-image: linear-gradient(to right, theme('colors.blue.800'), theme('colors.slate.600'), theme('colors.blue.800'));
+    background-size: 200% auto;
+    animation: slide-gradient 2s linear infinite;
+  }
+
+  @keyframes slide-gradient {
+    from {
+      background-position: 0% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
