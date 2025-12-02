@@ -10,7 +10,7 @@ interface ModelProviderCardProps {
 }
 
 export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }: ModelProviderCardProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const copyToClipboard = (text: string) => {
@@ -22,7 +22,7 @@ export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }
   );
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden break-inside-avoid">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className={`w-full ${color} text-white p-4 flex items-center justify-between hover-elevate active-elevate-2`}
