@@ -341,6 +341,17 @@ export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange
         )}
 
         <div className="flex flex-col sm:flex-row gap-3">
+          {editProvider && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onEditComplete}
+              className="w-full sm:w-auto"
+              data-testid="button-cancel-edit"
+            >
+              Cancel
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
