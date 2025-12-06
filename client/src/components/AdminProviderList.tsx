@@ -27,7 +27,6 @@ export function AdminProviderList({ }: AdminProviderListProps) {
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
   const [editingProvider, setEditingProvider] = useState<any>(null);
   const [showKeys, setShowKeys] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
   const [modelSearchMap, setModelSearchMap] = useState<Map<string, string>>(new Map());
 
   const { data: providersData, isLoading } = useQuery({
@@ -61,7 +60,6 @@ export function AdminProviderList({ }: AdminProviderListProps) {
       return;
     }
 
-    setDeleting(id); // Set deleting state
     try {
       await api.deleteProvider(id);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
@@ -70,15 +68,12 @@ export function AdminProviderList({ }: AdminProviderListProps) {
         title: "Provider Deleted",
         description: "Provider has been deleted successfully",
       });
-      window.location.reload();
     } catch (error: any) {
       toast({
         title: "Error",
         description: error.message || "Failed to delete provider",
         variant: "destructive",
       });
-    } finally {
-      setDeleting(null); // Reset deleting state
     }
   };
 
