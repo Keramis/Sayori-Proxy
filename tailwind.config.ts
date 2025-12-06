@@ -86,7 +86,7 @@ export default {
         sans: ["var(--font-sans)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
-        script: ["Pacifico", "cursive"],
+        script: ["Mountains of Christmas", "cursive"],
       },
       keyframes: {
         "accordion-down": {
