@@ -174,19 +174,28 @@ BEGIN
 END;
 
 CREATE TRIGGER soft_delete_keys_on_provider_delete
-BEFORE DELETE ON providers
+AFTER DELETE ON providers
 FOR EACH ROW
 BEGIN
-    UPDATE user_tokens 
+    -- Remove the deleted provider from any scoped keys
+    UPDATE user_tokens
+    SET allowed_providers = (
+        SELECT CASE 
+            WHEN COUNT(*) = 0 THEN '[]'
+            ELSE json_group_array(value)
+        END
+        FROM json_each(user_tokens.allowed_providers)
+        WHERE value != OLD.id
+    )
+    WHERE key_type = 'master'
+      AND allowed_providers IS NOT NULL;
+
+    -- Soft-delete any keys that no longer have providers after the removal
+    UPDATE user_tokens
     SET deleted_at = strftime('%s', 'now')
-    WHERE key_type = 'master' 
-    AND (
-        allowed_providers IS NULL 
-        OR allowed_providers = '["' || OLD.id || '"]'
-        OR allowed_providers LIKE '[' || OLD.id || ',%'
-        OR allowed_providers LIKE '%,' || OLD.id || ',%'
-        OR allowed_providers LIKE '%,' || OLD.id || ']'
-    );
+    WHERE key_type = 'master'
+      AND allowed_providers IS NOT NULL
+      AND allowed_providers = '[]';
 END;
 
 CREATE TRIGGER cascade_soft_delete_to_subkeys
@@ -205,96 +214,3 @@ INSERT INTO system_config (key, value, updated_at) VALUES
 ('total_tokens_all', '0', strftime('%s', 'now')),
 ('total_requests_all', '0', strftime('%s', 'now')),
 ('active_requests', '0', strftime('%s', 'now'));
-
-/*
-USE THIS TO MIGRATE PROD DB:
--- 1. Disable foreign keys temporarily
-PRAGMA foreign_keys = OFF;
-
--- 2. Drop existing triggers if they exist
-DROP TRIGGER IF EXISTS promote_child_usage_on_delete;
-DROP TRIGGER IF EXISTS nullify_parent_usage_on_delete;
-
--- 3. Create new usage_records table with correct constraints
-CREATE TABLE usage_records_new (
-    id TEXT PRIMARY KEY,
-    user_token_id TEXT,
-    model_id TEXT,
-    provider_id TEXT,
-    tokens INTEGER DEFAULT 0,
-    input_tokens INTEGER DEFAULT 0,
-    output_tokens INTEGER DEFAULT 0,
-    timestamp INTEGER NOT NULL,
-    cost REAL NOT NULL DEFAULT 1.0,
-    FOREIGN KEY (user_token_id) REFERENCES user_tokens(id) ON DELETE SET NULL,
-    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
-    FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
-);
-
--- 4. Copy data
-INSERT INTO usage_records_new SELECT * FROM usage_records;
-
--- 5. Replace old table
-DROP TABLE usage_records;
-ALTER TABLE usage_records_new RENAME TO usage_records;
-
--- 6. Recreate indexes
-CREATE INDEX idx_usage_records_user_token_id ON usage_records(user_token_id);
-CREATE INDEX idx_usage_records_timestamp ON usage_records(timestamp);
-CREATE INDEX idx_usage_records_provider_id ON usage_records(provider_id);
-CREATE INDEX idx_usage_records_model_id ON usage_records(model_id);
-CREATE INDEX idx_usage_records_user_today ON usage_records(user_token_id, timestamp);
-
--- 7. Recreate triggers
-CREATE TRIGGER promote_child_usage_on_delete
-BEFORE DELETE ON user_tokens
-FOR EACH ROW
-WHEN OLD.parent_token_id IS NOT NULL
-BEGIN
-    UPDATE usage_records 
-    SET user_token_id = OLD.parent_token_id 
-    WHERE user_token_id = OLD.id;
-END;
-
-CREATE TRIGGER nullify_parent_usage_on_delete
-BEFORE DELETE ON user_tokens
-FOR EACH ROW
-WHEN OLD.parent_token_id IS NULL
-BEGIN
-    UPDATE usage_records 
-    SET user_token_id = NULL 
-    WHERE user_token_id = OLD.id;
-END;
-
--- Add the trigger to soft delete keys when provider is deleted
-CREATE TRIGGER soft_delete_keys_on_provider_delete
-BEFORE DELETE ON providers
-FOR EACH ROW
-BEGIN
-    UPDATE user_tokens 
-    SET deleted_at = strftime('%s', 'now')
-    WHERE key_type = 'master' 
-    AND id IN (
-        SELECT api_keys.id 
-        FROM api_keys 
-        WHERE api_keys.provider_id = OLD.id
-    );
-END;
-
--- Trigger to cascade deleted_at to subkeys when a parent token is soft deleted
-CREATE TRIGGER cascade_soft_delete_to_subkeys
-AFTER UPDATE OF deleted_at ON user_tokens
-FOR EACH ROW
-WHEN NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL
-BEGIN
-    UPDATE user_tokens 
-    SET deleted_at = NEW.deleted_at
-    WHERE parent_token_id = NEW.id AND deleted_at IS NULL;
-END;
-
--- 8. Re-enable foreign keys
-PRAGMA foreign_keys = ON;
-
--- afterwards (deleted_at col)
-ALTER TABLE user_tokens ADD deleted_at INTEGER;
-*/

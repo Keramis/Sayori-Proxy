@@ -238,9 +238,50 @@ export class SQLiteStorage implements IStorage {
 
   async deleteProvider(id: string): Promise<boolean> {
     try {
-      const stmt = this.db.prepare('DELETE FROM providers WHERE id = ?');
-      const result = stmt.run(id);
-      return result.changes > 0;
+      const transaction = this.db.transaction((providerId: string) => {
+        const now = Date.now();
+
+        // Clean up scoped keys before deleting the provider so existing databases
+        // don't rely solely on the trigger.
+        const tokens = this.db.prepare(`
+          SELECT id, allowed_providers 
+          FROM user_tokens 
+          WHERE key_type = 'master' AND allowed_providers IS NOT NULL AND deleted_at IS NULL
+        `).all() as { id: string; allowed_providers: string | null }[];
+
+        const updateAllowedProviders = this.db.prepare('UPDATE user_tokens SET allowed_providers = ? WHERE id = ?');
+        const softDeleteToken = this.db.prepare('UPDATE user_tokens SET allowed_providers = ?, deleted_at = ? WHERE id = ?');
+
+        for (const token of tokens) {
+          let providers: string[];
+
+          try {
+            providers = JSON.parse(token.allowed_providers || '[]');
+            if (!Array.isArray(providers)) {
+              continue;
+            }
+          } catch {
+            continue;
+          }
+
+          const filtered = providers.filter((p) => p !== providerId);
+          if (filtered.length === providers.length) {
+            continue; // Provider not in this token's allowed list
+          }
+
+          if (filtered.length === 0) {
+            softDeleteToken.run(JSON.stringify(filtered), now, token.id);
+          } else {
+            updateAllowedProviders.run(JSON.stringify(filtered), token.id);
+          }
+        }
+
+        const stmt = this.db.prepare('DELETE FROM providers WHERE id = ?');
+        const result = stmt.run(providerId);
+        return result.changes > 0;
+      });
+
+      return transaction(id);
     } catch (error) {
       console.error('Error deleting provider:', error);
       throw error;
