@@ -210,6 +210,10 @@ async function syncProviderModels(providerId: string) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Behind a proxy/CDN (e.g., Cloudflare) we must trust the first hop so
+  // req.secure reflects the original HTTPS request and X-Forwarded-* works.
+  app.set("trust proxy", 1);
+
   // Enable CORS
   app.use(cors({
     origin: true, // Allow all origins but reflect request origin
