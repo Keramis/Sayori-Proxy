@@ -64,6 +64,7 @@ export function AdminProviderList({ }: AdminProviderListProps) {
       await api.deleteProvider(id);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tokens"] });
       toast({
         title: "Provider Deleted",
         description: "Provider has been deleted successfully",
