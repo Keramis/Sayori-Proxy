@@ -1239,6 +1239,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         body: JSON.stringify({ model: targetModel.modelId, ...requestBody }),
       });
 
+      // Check if provider returned an error response
+      if (!response.ok) {
+        console.error(`[${requestId}] Provider error: ${response.status} ${response.statusText}`);
+        // Log the actual error for debugging but don't expose it to the user
+        try {
+          const errorBody = await response.text();
+          console.error(`[${requestId}] Provider error body (not exposed to user): ${errorBody}`);
+        } catch (e) {
+          // Ignore if we can't read the error body
+        }
+        await storage.decrementActiveRequests();
+        // Return generic error message to avoid leaking provider sensitive info like base URL or even token
+        return safeSendError(response.status, "Provider failed to generate response");
+      }
+
       // Check if streaming is requested
       const isStreaming = requestBody.stream === true;
       console.log(`[DEBUG] Streaming requested: ${isStreaming}`);
@@ -1519,7 +1534,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error(`[ERROR] Request failed:`, error.message);
       console.error(`[ERROR] Error stack:`, error.stack);
       await storage.decrementActiveRequests();
-      safeSendError(500, error.message);
+      // Return generic error message to avoid leaking sensitive information
+      safeSendError(500, "Provider failed to generate response");
     }
   });
 
