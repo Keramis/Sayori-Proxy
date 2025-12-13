@@ -944,14 +944,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Update each model using the existing updateModel method
-      const updatedModels = [];
-      for (const update of updates) {
-        const model = await storage.updateModel(update.id, { enabled: update.enabled });
-        if (model) {
-          updatedModels.push(model);
-        }
-      }
+      // Use the efficient bulk update method (single transaction)
+      const updatedModels = await storage.bulkUpdateModelsByIds(updates);
 
       // Get all models for this provider to return
       const allModels = await storage.getModels(req.params.id);

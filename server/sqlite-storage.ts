@@ -611,6 +611,33 @@ export class SQLiteStorage implements IStorage {
     return this.updateModelsByProvider(providerId, { requestCost });
   }
 
+  async bulkUpdateModelsByIds(updates: Array<{ id: string; enabled: boolean }>): Promise<Model[]> {
+    const transaction = this.db.transaction(() => {
+      try {
+        // Prepare the update statement once
+        const updateStmt = this.db.prepare('UPDATE models SET enabled = ? WHERE id = ?');
+        
+        // Execute all updates within the transaction
+        for (const update of updates) {
+          updateStmt.run(update.enabled ? 1 : 0, update.id);
+        }
+        
+        // Fetch and return all updated models
+        const modelIds = updates.map(u => u.id);
+        const placeholders = modelIds.map(() => '?').join(',');
+        const getStmt = this.db.prepare(`SELECT * FROM models WHERE id IN (${placeholders})`);
+        const rows = getStmt.all(...modelIds);
+        
+        return rows.map(this.rowToModel);
+      } catch (error) {
+        console.error('Error in bulkUpdateModelsByIds transaction:', error);
+        throw error;
+      }
+    });
+
+    return transaction();
+  }
+
   // User Token methods
   async getUserTokens(): Promise<UserToken[]> {
     try {
