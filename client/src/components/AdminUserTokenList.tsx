@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Trash2, Copy, Edit } from "lucide-react";
+import { Trash2, Copy, Edit, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -158,6 +158,29 @@ export function AdminUserTokenList({ }: AdminUserTokenListProps) {
       title: "Token Copied",
       description: "Token has been copied to clipboard",
     });
+  };
+
+  const regenerateToken = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to regenerate the API key for "${name}"? The old key will stop working immediately.`)) {
+      return;
+    }
+
+    try {
+      const newToken = await api.regenerateUserToken(id);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tokens"] });
+      toast({
+        title: "Token Regenerated",
+        description: "A new API key has been generated successfully",
+      });
+      // Automatically copy the new token to clipboard
+      navigator.clipboard.writeText(newToken.token);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to regenerate token",
+        variant: "destructive",
+      });
+    }
   };
 
   const deleteToken = async (id: string) => {
@@ -366,6 +389,14 @@ export function AdminUserTokenList({ }: AdminUserTokenListProps) {
                         onClick={() => copyToken(token.token)}
                         data-testid={`button-copy-${token.id}`}>
                         <Copy className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => regenerateToken(token.id, token.name)}
+                        data-testid={`button-regenerate-${token.id}`}
+                        title="Regenerate API key">
+                        <RefreshCw className="h-3 w-3" />
                       </Button>
                     </div>
                   </div>

@@ -337,4 +337,15 @@ export const api = {
       if (!res.ok) throw new Error("Failed to delete user token");
       return res.json();
     }),
+
+  regenerateUserToken: (tokenId: string) =>
+    fetch(`/api/admin/tokens/${tokenId}/regenerate`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to regenerate user token");
+      }
+      return res.json();
+    }),
 };

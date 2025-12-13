@@ -981,6 +981,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success });
   });
 
+  app.post("/api/admin/tokens/:id/regenerate", adminAuth, async (req: Request, res: Response) => {
+    try {
+      const token = await storage.regenerateUserToken(req.params.id);
+      if (!token) {
+        return res.status(404).json({ error: "Token not found" });
+      }
+      res.json(token);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/debug/ip", (req: Request, res: Response) => {
     res.json({
       cfConnectingIP: req.get('cf-connecting-ip'),
