@@ -56,12 +56,16 @@ export function AdminModelList({ providerId, providerName, searchQuery = "" }: A
   const handleEnableAll = async () => {
     setIsEnabling(true);
     try {
-      await api.enableAllModels(providerId);
+      const updates = models.map((model: any) => ({
+        id: model.id,
+        enabled: true,
+      }));
+      await api.bulkUpdateModels(providerId, updates);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
         title: "Models Enabled",
-        description: "All models have been enabled",
+        description: `${models.length} model${models.length !== 1 ? 's have' : ' has'} been enabled`,
       });
     } catch (error: any) {
       toast({
@@ -77,12 +81,16 @@ export function AdminModelList({ providerId, providerName, searchQuery = "" }: A
   const handleDisableAll = async () => {
     setIsDisabling(true);
     try {
-      await api.disableAllModels(providerId);
+      const updates = models.map((model: any) => ({
+        id: model.id,
+        enabled: false,
+      }));
+      await api.bulkUpdateModels(providerId, updates);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
         title: "Models Disabled",
-        description: "All models have been disabled",
+        description: `${models.length} model${models.length !== 1 ? 's have' : ' has'} been disabled`,
       });
     } catch (error: any) {
       toast({

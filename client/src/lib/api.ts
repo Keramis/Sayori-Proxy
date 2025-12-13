@@ -262,23 +262,22 @@ export const api = {
       return res.json();
     }),
 
-  enableAllModels: (providerId: string) =>
-    fetch(`/api/admin/providers/${providerId}/models/enable-all`, {
-      method: "POST",
+  bulkUpdateModels: (providerId: string, updates: Array<{ id: string; enabled: boolean }>) =>
+    fetch(`/api/admin/providers/${providerId}/models/bulk`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ updates }),
     }).then(async (res) => {
-      if (!res.ok) throw new Error("Failed to enable all models");
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to bulk update models");
+      }
       return res.json();
     }),
 
-  disableAllModels: (providerId: string) =>
-    fetch(`/api/admin/providers/${providerId}/models/disable-all`, {
-      method: "POST",
-    }).then(async (res) => {
-      if (!res.ok) throw new Error("Failed to disable all models");
-      return res.json();
-    }),
-
-  async updateAllModelsCost(authToken: string, providerId: string, requestCost: number) {
+  async updateAllModelsCost(providerId: string, requestCost: number) {
     const response = await fetch(`/api/admin/providers/${providerId}/models/update-cost-all`, {
       method: "POST",
       headers: {

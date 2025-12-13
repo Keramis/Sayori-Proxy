@@ -908,24 +908,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk model operations
-  app.post("/api/admin/providers/:id/models/enable-all", adminAuth, async (req: Request, res: Response) => {
-    try {
-      const models = await storage.enableAllModelsByProvider(req.params.id);
-      res.json({ success: true, count: models.length });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.post("/api/admin/providers/:id/models/disable-all", adminAuth, async (req: Request, res: Response) => {
-    try {
-      const models = await storage.disableAllModelsByProvider(req.params.id);
-      res.json({ success: true, count: models.length });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
   app.post("/api/admin/providers/:id/models/update-cost-all", adminAuth, async (req: Request, res: Response) => {
     try {
       const { requestCost } = req.body;
@@ -934,6 +916,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const models = await storage.updateCostAllModelsByProvider(req.params.id, parseInt(requestCost));
       res.json({ success: true, count: models.length });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Bulk model updates - accepts array of model updates
+  app.patch("/api/admin/providers/:id/models/bulk", adminAuth, async (req: Request, res: Response) => {
+    try {
+      const { updates } = req.body;
+      
+      if (!updates || !Array.isArray(updates)) {
+        return res.status(400).json({ error: "Updates array is required" });
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: "Updates array cannot be empty" });
+      }
+
+      // Validate that all updates have required fields
+      for (const update of updates) {
+        if (!update.id || typeof update.id !== 'string') {
+          return res.status(400).json({ error: "Each update must have a valid 'id' field" });
+        }
+        if (update.enabled === undefined || typeof update.enabled !== 'boolean') {
+          return res.status(400).json({ error: "Each update must have a valid 'enabled' field" });
+        }
+      }
+
+      // Update each model using the existing updateModel method
+      const updatedModels = [];
+      for (const update of updates) {
+        const model = await storage.updateModel(update.id, { enabled: update.enabled });
+        if (model) {
+          updatedModels.push(model);
+        }
+      }
+
+      // Get all models for this provider to return
+      const allModels = await storage.getModels(req.params.id);
+      
+      res.json({
+        success: true,
+        updated: updatedModels.length,
+        models: allModels
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
