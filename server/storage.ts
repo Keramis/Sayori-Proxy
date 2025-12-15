@@ -67,6 +67,7 @@ export interface IStorage {
   createUserToken(userToken: InsertUserToken): Promise<UserToken>;
   updateUserToken(id: string, userToken: Partial<InsertUserToken>): Promise<UserToken | undefined>;
   deleteUserToken(id: string): Promise<boolean>;
+  regenerateUserToken(id: string): Promise<UserToken | undefined>;
 
   // Sub-key methods
   getSubKeys(parentTokenId: string): Promise<UserToken[]>;

@@ -785,6 +785,21 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
+  async regenerateUserToken(id: string): Promise<UserToken | undefined> {
+    try {
+      const newToken = "sk_" + randomUUID().replace(/-/g, "");
+      const stmt = this.db.prepare('UPDATE user_tokens SET token = ? WHERE id = ?');
+      const result = stmt.run(newToken, id);
+
+      if (result.changes === 0) return undefined;
+
+      return this.getUserTokenById(id);
+    } catch (error) {
+      console.error('Error regenerating user token:', error);
+      throw error;
+    }
+  }
+
   // Sub-key specific methods
   async getSubKeys(parentTokenId: string): Promise<UserToken[]> {
     try {
