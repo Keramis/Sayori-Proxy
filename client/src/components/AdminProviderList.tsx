@@ -28,6 +28,7 @@ export function AdminProviderList({ }: AdminProviderListProps) {
   const [editingProvider, setEditingProvider] = useState<any>(null);
   const [showKeys, setShowKeys] = useState<string | null>(null);
   const [modelSearchMap, setModelSearchMap] = useState<Map<string, string>>(new Map());
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: providersData, isLoading } = useQuery({
     queryKey: ["/api/admin/providers"],
@@ -36,6 +37,17 @@ export function AdminProviderList({ }: AdminProviderListProps) {
 
   // Ensure providers is always an array
   const providers = Array.isArray(providersData) ? providersData : [];
+
+  // Filter providers based on search query
+  const filteredProviders = providers.filter((provider: any) => {
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesName = provider.name.toLowerCase().includes(query);
+      const matchesUrl = provider.baseUrl.toLowerCase().includes(query);
+      if (!matchesName && !matchesUrl) return false;
+    }
+    return true;
+  });
 
   const toggleProvider = async (id: string, currentState: boolean) => {
     try {
@@ -103,8 +115,36 @@ export function AdminProviderList({ }: AdminProviderListProps) {
   }
 
   return (
-    <div className="space-y-3">
-      {providers.map((provider: any) => (
+    <div className="space-y-4">
+      {/* Search Section */}
+      <Card className="p-4">
+        <div>
+          <Label htmlFor="provider-search">Search by Name or URL</Label>
+          <Input
+            id="provider-search"
+            placeholder="Search providers..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="mt-1"
+          />
+        </div>
+      </Card>
+
+      {/* Results Count */}
+      {searchQuery && (
+        <div className="text-sm text-muted-foreground">
+          Showing {filteredProviders.length} of {providers.length} providers
+        </div>
+      )}
+
+      {/* Provider List */}
+      {filteredProviders.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          No providers match the current filters.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredProviders.map((provider: any) => (
         <Card key={provider.id} className="p-4" data-testid={`provider-${provider.id}`}>
           {editingProvider?.id === provider.id ? (
             <div className="space-y-3">
@@ -213,7 +253,9 @@ export function AdminProviderList({ }: AdminProviderListProps) {
             </div>
           )}
         </Card>
-      ))}
+          ))}
+        </div>
+      )}
     </div>
   );
 }
