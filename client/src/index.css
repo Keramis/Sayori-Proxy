@@ -2,93 +2,93 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE */
+/* LIGHT MODE - CS:GO Cheat Style (Lighter Dark) */
 :root {
-  --button-outline: rgba(0,0,0, .10);
-  --badge-outline: rgba(0,0,0, .05);
+  --button-outline: rgba(0, 170, 255, .20);
+  --badge-outline: rgba(0, 255, 136, .10);
 
   /* Automatic computation of border around primary / danger buttons */
   --opaque-button-border-intensity: -8; /* In terms of percentages */
 
   /* Backgrounds applied on top of other backgrounds when hovered/active */
-  --elevate-1: rgba(0,0,0, .03);
-  --elevate-2: rgba(0,0,0, .08);
+  --elevate-1: rgba(0, 170, 255, .08);
+  --elevate-2: rgba(0, 170, 255, .15);
 
-  --background: 0 0% 100%;
+  --background: 220 15% 15%; /* Dark gray background */
 
-  --foreground: 0 0% 10%;
+  --foreground: 200 100% 85%; /* Light blue-white text */
 
-  --border: 0 0% 90%;
+  --border: 210 30% 25%; /* Dark borders */
 
-  --card: 0 0% 98%;
+  --card: 220 18% 18%; /* Slightly lighter than background */
 
-  --card-foreground: 0 0% 10%;
+  --card-foreground: 200 100% 85%;
 
-  --card-border: 0 0% 93%;
+  --card-border: 210 40% 30%; /* Glowing blue borders */
 
-  --sidebar: 210 20% 98%;
+  --sidebar: 220 20% 20%;
 
-  --sidebar-foreground: 210 40% 10%;
+  --sidebar-foreground: 200 100% 85%;
 
-  --sidebar-border: 210 20% 91%;
+  --sidebar-border: 210 40% 30%;
 
-  --sidebar-primary: 0 84% 60%;
+  --sidebar-primary: 200 100% 50%; /* Blue accent */
 
-  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-primary-foreground: 220 15% 15%;
 
-  --sidebar-accent: 210 50% 95%;
+  --sidebar-accent: 220 25% 25%;
 
-  --sidebar-accent-foreground: 210 90% 25%;
+  --sidebar-accent-foreground: 200 100% 75%;
 
-  --sidebar-ring: 0 84% 60%;
+  --sidebar-ring: 200 100% 50%;
 
-  --popover: 0 0% 100%;
+  --popover: 220 18% 18%;
 
-  --popover-foreground: 210 40% 10%;
+  --popover-foreground: 200 100% 85%;
 
-  --popover-border: 210 20% 91%;
+  --popover-border: 210 40% 30%;
 
-  --primary: 0 84% 60%;
+  --primary: 200 100% 50%; /* Blue primary */
 
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 220 15% 15%;
 
-  --secondary: 210 50% 95%;
+  --secondary: 220 25% 25%;
 
-  --secondary-foreground: 210 90% 25%;
+  --secondary-foreground: 200 100% 75%;
 
-  --muted: 210 20% 96%;
+  --muted: 220 22% 22%;
 
-  --muted-foreground: 210 10% 45%;
+  --muted-foreground: 200 80% 60%;
 
-  --accent: 210 30% 96%;
+  --accent: 220 28% 28%;
 
-  --accent-foreground: 210 90% 30%;
+  --accent-foreground: 200 100% 70%;
 
-  --destructive: 0 84% 60%;
+  --destructive: 0 100% 60%; /* Red for destructive */
 
-  --destructive-foreground: 0 0% 100%;
+  --destructive-foreground: 220 15% 15%;
 
-  --input: 210 20% 85%;
-  --ring: 0 84% 60%;
-  --chart-1: 210 90% 55%;
-  --chart-2: 210 70% 45%;
-  --chart-3: 142 71% 45%;
-  --chart-4: 38 92% 50%;
-  --chart-5: 220 70% 50%;
+  --input: 220 20% 20%;
+  --ring: 200 100% 50%;
+  --chart-1: 200 100% 50%; /* Blue */
+  --chart-2: 160 100% 50%; /* Green */
+  --chart-3: 280 100% 50%; /* Purple */
+  --chart-4: 30 100% 50%; /* Orange */
+  --chart-5: 340 100% 50%; /* Pink */
 
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
   --font-serif: Georgia, serif;
-  --font-mono: 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace;
-  --radius: .5rem;
-  --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.08);
-  --shadow-sm: 0px 2px 4px 0px hsl(0 0% 0% / 0.06), 0px 1px 2px -1px hsl(0 0% 0% / 0.04);
-  --shadow: 0px 4px 6px 0px hsl(0 0% 0% / 0.07), 0px 2px 4px -1px hsl(0 0% 0% / 0.05);
-  --shadow-md: 0px 6px 12px 0px hsl(0 0% 0% / 0.08), 0px 2px 6px -2px hsl(0 0% 0% / 0.06);
-  --shadow-lg: 0px 10px 20px 0px hsl(0 0% 0% / 0.10), 0px 4px 8px -2px hsl(0 0% 0% / 0.08);
-  --shadow-xl: 0px 16px 32px 0px hsl(0 0% 0% / 0.12), 0px 8px 16px -4px hsl(0 0% 0% / 0.10);
-  --shadow-2xl: 0px 24px 48px 0px hsl(0 0% 0% / 0.15);
-  --tracking-normal: 0em;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  --radius: .25rem; /* More angular, less rounded */
+  --shadow-2xs: 0px 1px 2px 0px hsl(200 100% 50% / 0.15);
+  --shadow-xs: 0px 1px 3px 0px hsl(200 100% 50% / 0.20);
+  --shadow-sm: 0px 2px 4px 0px hsl(200 100% 50% / 0.18), 0px 1px 2px -1px hsl(200 100% 50% / 0.15);
+  --shadow: 0px 4px 6px 0px hsl(200 100% 50% / 0.20), 0px 2px 4px -1px hsl(200 100% 50% / 0.18);
+  --shadow-md: 0px 6px 12px 0px hsl(200 100% 50% / 0.25), 0px 2px 6px -2px hsl(200 100% 50% / 0.20);
+  --shadow-lg: 0px 10px 20px 0px hsl(200 100% 50% / 0.30), 0px 4px 8px -2px hsl(200 100% 50% / 0.25);
+  --shadow-xl: 0px 16px 32px 0px hsl(200 100% 50% / 0.35), 0px 8px 16px -4px hsl(200 100% 50% / 0.30);
+  --shadow-2xl: 0px 24px 48px 0px hsl(200 100% 50% / 0.40);
+  --tracking-normal: 0.05em; /* Slightly wider letter spacing */
   --spacing: 0.25rem;
 
   /* Automatically computed borders - intensity can be controlled by the user by the --opaque-button-border-intensity setting */
@@ -123,85 +123,85 @@
 }
 
 .dark {
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
+  --button-outline: rgba(102, 0, 204, .30);
+  --badge-outline: rgba(0, 153, 255, .15);
 
   --opaque-button-border-intensity: 9;  /* In terms of percentages */
 
   /* Backgrounds applied on top of other backgrounds when hovered/active */
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
+  --elevate-1: rgba(102, 0, 204, .12);
+  --elevate-2: rgba(102, 0, 204, .20);
 
-  --background: 0 0% 8%;
+  --background: 240 10% 5%; /* Very dark black */
 
-  --foreground: 0 0% 95%;
+  --foreground: 240 100% 90%; /* Bright white-blue text */
 
-  --border: 0 0% 20%;
+  --border: 240 15% 10%; /* Very dark borders */
 
-  --card: 0 0% 12%;
+  --card: 240 12% 8%; /* Slightly lighter than background */
 
-  --card-foreground: 0 0% 95%;
+  --card-foreground: 240 100% 90%;
 
-  --card-border: 0 0% 16%;
+  --card-border: 270 100% 50%; /* Purple glowing borders */
 
-  --sidebar: 220 30% 10%;
+  --sidebar: 240 15% 7%;
 
-  --sidebar-foreground: 210 20% 95%;
+  --sidebar-foreground: 240 100% 85%;
 
-  --sidebar-border: 220 30% 14%;
+  --sidebar-border: 270 100% 40%;
 
-  --sidebar-primary: 210 80% 65%;
+  --sidebar-primary: 270 100% 60%; /* Purple accent */
 
-  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-primary-foreground: 240 10% 5%;
 
-  --sidebar-accent: 210 40% 20%;
+  --sidebar-accent: 240 18% 12%;
 
-  --sidebar-accent-foreground: 210 80% 80%;
+  --sidebar-accent-foreground: 240 100% 75%;
 
-  --sidebar-ring: 210 80% 65%;
+  --sidebar-ring: 270 100% 60%;
 
-  --popover: 220 30% 12%;
+  --popover: 240 12% 8%;
 
-  --popover-foreground: 210 20% 95%;
+  --popover-foreground: 240 100% 90%;
 
-  --popover-border: 220 30% 16%;
+  --popover-border: 270 100% 40%;
 
-  --primary: 210 80% 65%;
+  --primary: 270 100% 60%; /* Purple primary */
 
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 240 10% 5%;
 
-  --secondary: 210 40% 20%;
+  --secondary: 240 18% 12%;
 
-  --secondary-foreground: 210 80% 80%;
+  --secondary-foreground: 240 100% 75%;
 
-  --muted: 217 30% 18%;
+  --muted: 240 15% 10%;
 
-  --muted-foreground: 215 20% 65%;
+  --muted-foreground: 240 80% 60%;
 
-  --accent: 217 30% 22%;
+  --accent: 240 20% 15%;
 
-  --accent-foreground: 210 80% 75%;
+  --accent-foreground: 240 100% 70%;
 
-  --destructive: 0 70% 65%;
+  --destructive: 0 100% 70%; /* Bright red for destructive */
 
-  --destructive-foreground: 0 0% 100%;
+  --destructive-foreground: 240 10% 5%;
 
-  --input: 217 30% 25%;
-  --ring: 210 80% 65%;
-  --chart-1: 210 80% 70%;
-  --chart-2: 210 60% 60%;
-  --chart-3: 142 60% 50%;
-  --chart-4: 38 80% 55%;
-  --chart-5: 220 65% 60%;
+  --input: 240 15% 10%;
+  --ring: 270 100% 60%;
+  --chart-1: 270 100% 60%; /* Purple */
+  --chart-2: 200 100% 60%; /* Blue */
+  --chart-3: 160 100% 60%; /* Green */
+  --chart-4: 30 100% 60%; /* Orange */
+  --chart-5: 340 100% 60%; /* Pink */
 
-  --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.30);
-  --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.40);
-  --shadow-sm: 0px 2px 4px 0px hsl(0 0% 0% / 0.35), 0px 1px 2px -1px hsl(0 0% 0% / 0.30);
-  --shadow: 0px 4px 6px 0px hsl(0 0% 0% / 0.40), 0px 2px 4px -1px hsl(0 0% 0% / 0.35);
-  --shadow-md: 0px 6px 12px 0px hsl(0 0% 0% / 0.45), 0px 2px 6px -2px hsl(0 0% 0% / 0.40);
-  --shadow-lg: 0px 10px 20px 0px hsl(0 0% 0% / 0.50), 0px 4px 8px -2px hsl(0 0% 0% / 0.45);
-  --shadow-xl: 0px 16px 32px 0px hsl(0 0% 0% / 0.55), 0px 8px 16px -4px hsl(0 0% 0% / 0.50);
-  --shadow-2xl: 0px 24px 48px 0px hsl(0 0% 0% / 0.60);
+  --shadow-2xs: 0px 1px 2px 0px hsl(270 100% 60% / 0.25);
+  --shadow-xs: 0px 1px 3px 0px hsl(270 100% 60% / 0.35);
+  --shadow-sm: 0px 2px 4px 0px hsl(270 100% 60% / 0.30), 0px 1px 2px -1px hsl(270 100% 60% / 0.25);
+  --shadow: 0px 4px 6px 0px hsl(270 100% 60% / 0.35), 0px 2px 4px -1px hsl(270 100% 60% / 0.30);
+  --shadow-md: 0px 6px 12px 0px hsl(270 100% 60% / 0.40), 0px 2px 6px -2px hsl(270 100% 60% / 0.35);
+  --shadow-lg: 0px 10px 20px 0px hsl(270 100% 60% / 0.45), 0px 4px 8px -2px hsl(270 100% 60% / 0.40);
+  --shadow-xl: 0px 16px 32px 0px hsl(270 100% 60% / 0.50), 0px 8px 16px -4px hsl(270 100% 60% / 0.45);
+  --shadow-2xl: 0px 24px 48px 0px hsl(270 100% 60% / 0.55);
 
   /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -305,7 +305,61 @@
   }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-mono antialiased bg-background text-foreground;
+    letter-spacing: 0.05em;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Add subtle scanline effect to the entire background */
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      transparent 50%,
+      rgba(0, 255, 136, 0.02) 50%
+    );
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Ensure content appears above scanlines */
+  main, header, footer {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Terminal-style headings */
+  h1, h2, h3, h4, h5, h6 {
+    @apply terminal-text;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* Code blocks get special treatment */
+  code, pre {
+    @apply terminal-text;
+    background: hsl(var(--muted));
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.125rem;
+    border: 1px solid hsl(var(--border));
+  }
+
+  /* Links get glow effect */
+  a {
+    color: hsl(var(--primary));
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+
+  a:hover {
+    text-shadow: 0 0 8px hsl(var(--primary));
   }
 }
 
@@ -434,6 +488,134 @@
     }
     to {
       background-position: -200% 0;
+    }
+  }
+
+  /* CS:GO Cheat Style Effects */
+  .glow-border {
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.5),
+                0 0 20px hsl(var(--primary) / 0.3),
+                inset 0 0 10px hsl(var(--primary) / 0.1);
+    border: 1px solid hsl(var(--primary) / 0.8);
+  }
+
+  .glow-border-green {
+    box-shadow: 0 0 10px hsl(160 100% 50% / 0.5),
+                0 0 20px hsl(160 100% 50% / 0.3),
+                inset 0 0 10px hsl(160 100% 50% / 0.1);
+    border: 1px solid hsl(160 100% 50% / 0.8);
+  }
+
+  .glow-border-purple {
+    box-shadow: 0 0 10px hsl(270 100% 50% / 0.5),
+                0 0 20px hsl(270 100% 50% / 0.3),
+                inset 0 0 10px hsl(270 100% 50% / 0.1);
+    border: 1px solid hsl(270 100% 50% / 0.8);
+  }
+
+  .scanlines::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      transparent 50%,
+      rgba(0, 255, 136, 0.03) 50%
+    );
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .terminal-text {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    text-shadow: 0 0 5px currentColor;
+    letter-spacing: 0.05em;
+  }
+
+  .cyber-grid {
+    background-image:
+      linear-gradient(rgba(0, 170, 255, 0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 170, 255, 0.1) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  .dark .cyber-grid {
+    background-image:
+      linear-gradient(rgba(102, 0, 204, 0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(102, 0, 204, 0.1) 1px, transparent 1px);
+  }
+
+  .hack-button {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+  }
+
+  .hack-button::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.2), transparent);
+    transition: left 0.5s;
+  }
+
+  .hack-button:hover::before {
+    left: 100%;
+  }
+
+  .data-stream {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .data-stream::after {
+    content: "";
+    position: absolute;
+    top: -100%;
+    left: 0;
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(to bottom, transparent, hsl(var(--primary)), transparent);
+    animation: data-flow 3s linear infinite;
+  }
+
+  @keyframes data-flow {
+    to {
+      top: 100%;
+    }
+  }
+
+  .glitch {
+    position: relative;
+    animation: glitch 2s infinite;
+  }
+
+  @keyframes glitch {
+    0%, 100% {
+      text-shadow:
+        2px 2px 0 hsl(var(--primary)),
+        -2px -2px 0 hsl(270 100% 50%);
+    }
+    25% {
+      text-shadow:
+        -2px 2px 0 hsl(var(--primary)),
+        2px -2px 0 hsl(160 100% 50%);
+    }
+    50% {
+      text-shadow:
+        2px -2px 0 hsl(var(--primary)),
+        -2px 2px 0 hsl(270 100% 50%);
+    }
+    75% {
+      text-shadow:
+        -2px -2px 0 hsl(var(--primary)),
+        2px 2px 0 hsl(160 100% 50%);
     }
   }
 }

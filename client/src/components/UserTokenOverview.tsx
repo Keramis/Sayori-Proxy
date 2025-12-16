@@ -135,41 +135,41 @@ export function UserTokenOverview() {
   // If no token or showing token input
   if (!token || !shouldFetch || showTokenInput) {
     return (
-      <Card className="max-w-2xl mx-auto">
+      <Card className="max-w-2xl mx-auto glow-border scanlines">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Key className="h-5 w-5" />
-            User Token Overview
+            Access Key Terminal
           </CardTitle>
-          <CardDescription>
-            Enter your user token to view your usage statistics
+          <CardDescription className="terminal-text">
+            Input your access key to view system telemetry
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="token">User Token</Label>
+            <Label htmlFor="token" className="terminal-text">Access Key</Label>
             <Input
               id="token"
               type="password"
               placeholder="sk_..."
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              className="font-mono"
+              className="font-mono terminal-text"
               data-testid="input-token"
             />
           </div>
 
           {error && (
-            <div className="text-sm text-destructive">{error}</div>
+            <div className="text-sm font-mono text-destructive terminal-text">{error}</div>
           )}
 
           <Button
             onClick={handleCheck}
-            className="w-full"
+            className="w-full hack-button"
             disabled={!token || isLoading}
             data-testid="button-verify-token"
           >
-            {isLoading ? "Checking..." : "Check Stats"}
+            {isLoading ? "Scanning..." : "Execute Query"}
           </Button>
         </CardContent>
       </Card>
@@ -178,27 +178,27 @@ export function UserTokenOverview() {
 
   // If stats are loaded, show them
   return (
-    <Card className="max-w-2xl mx-auto">
+    <Card className="max-w-2xl mx-auto glow-border scanlines">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Key className="h-5 w-5" />
-          User Token Overview
+          Access Key Terminal
         </CardTitle>
-        <CardDescription className="flex items-center gap-2">
+        <CardDescription className="flex items-center gap-2 terminal-text">
           <RefreshCw className="h-3 w-3 animate-spin" />
-          Auto-refreshing every 3 seconds
+          Live telemetry update - 3s interval
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <div className="text-sm text-muted-foreground mb-1">Token Name</div>
+          <div className="text-sm font-mono text-muted-foreground mb-1 terminal-text">Key Identifier</div>
           {isEditingName ? (
             <div className="flex items-center gap-2">
               <Input
                 value={editedName}
                 onChange={(e) => setEditedName(e.target.value)}
-                className="flex-1"
-                placeholder="Enter token name"
+                className="flex-1 terminal-text"
+                placeholder="Enter key identifier"
                 disabled={isUpdatingName}
               />
               <Button
@@ -222,7 +222,7 @@ export function UserTokenOverview() {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <div className="font-semibold flex-1">{stats?.name}</div>
+              <div className="font-mono font-semibold flex-1 terminal-text">{stats?.name}</div>
               <Button
                 size="icon"
                 variant="ghost"
@@ -236,20 +236,20 @@ export function UserTokenOverview() {
         </div>
 
         <div>
-          <div className="text-sm text-muted-foreground mb-1">Status</div>
+          <div className="text-sm font-mono text-muted-foreground mb-1 terminal-text">System Status</div>
           {(() => {
             const isExpired = stats?.expiresAt && stats.expiresAt <= Date.now();
             const isDisabled = stats?.disabled;
 
             if (isDisabled || isExpired) {
               return (
-                <Badge variant="destructive" className="text-xs">
-                  {isExpired ? "Expired & Disabled" : "Disabled"}
+                <Badge variant="destructive" className="text-xs terminal-text">
+                  {isExpired ? "Expired & Offline" : "Offline"}
                 </Badge>
               );
             }
             return (
-              <Badge variant="default" className="text-xs bg-green-600">
+              <Badge variant="default" className="text-xs bg-green-600 terminal-text">
                 Online
               </Badge>
             );
@@ -257,17 +257,17 @@ export function UserTokenOverview() {
         </div>
 
         <div>
-          <div className="text-sm text-muted-foreground mb-1">Last Used</div>
-          <div className="font-semibold" data-testid="text-last-used">{stats?.lastUsed}</div>
+          <div className="text-sm font-mono text-muted-foreground mb-1 terminal-text">Last Query</div>
+          <div className="font-mono font-semibold" data-testid="text-last-used">{stats?.lastUsed}</div>
         </div>
 
         <div>
-          <div className="text-sm text-muted-foreground mb-2">Requests Today</div>
+          <div className="text-sm font-mono text-muted-foreground mb-2 terminal-text">Daily Queries</div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-2xl font-bold text-primary" data-testid="text-rpd">
+            <span className="text-2xl font-mono font-bold text-primary terminal-text" data-testid="text-rpd">
               {stats?.requestsToday}/{stats?.maxRPD}
             </span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm font-mono text-muted-foreground terminal-text">
               {stats?.remainingRPD} remaining
             </span>
           </div>
@@ -276,7 +276,7 @@ export function UserTokenOverview() {
 
         {stats && stats.models.length > 0 && (
           <div>
-            <div className="text-sm text-muted-foreground mb-3">Model Usage</div>
+            <div className="text-sm font-mono text-muted-foreground mb-3 terminal-text">Algorithm Usage</div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={stats.models}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -293,27 +293,27 @@ export function UserTokenOverview() {
                   contentStyle={{
                     backgroundColor: 'hsl(var(--popover))',
                     border: '1px solid hsl(var(--border))',
-                    borderRadius: '6px'
+                    borderRadius: '4px'
                   }}
                 />
                 <Bar
                   dataKey="count"
                   fill="hsl(var(--primary))"
-                  radius={[4, 4, 0, 0]}
+                  radius={[2, 2, 0, 0]}
                 />
               </BarChart>
             </ResponsiveContainer>
           </div>
         )}
 
-        <div className="pt-4 border-t space-y-2">
+        <div className="pt-4 border-t border-border/50 space-y-2">
           <Button
             onClick={() => navigate("/user/manage")}
             variant="default"
-            className="w-full gap-2"
+            className="w-full gap-2 hack-button"
           >
             <Settings className="h-4 w-4" />
-            Manage User Token
+            System Configuration
           </Button>
           <Button
             onClick={handleLogout}
@@ -321,7 +321,7 @@ export function UserTokenOverview() {
             className="w-full gap-2"
           >
             <LogOut className="h-4 w-4" />
-            Log out
+            Terminate Session
           </Button>
         </div>
       </CardContent>

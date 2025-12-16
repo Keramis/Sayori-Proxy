@@ -170,28 +170,27 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-background relative">
+    <div className="min-h-screen bg-background relative cyber-grid">
       <SnowEffect />
       {/* Subtle background image */}
       <div
-        className="fixed inset-0 pointer-events-none"
+        className="fixed inset-0 pointer-events-none opacity-5"
         style={{
           backgroundImage: 'url(/assets/sayori.png)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',
-          opacity: 0.12,
         }}
       />
 
       <Header />
 
-      <main className="container mx-auto px-6 py-8">
+      <main className="container mx-auto px-6 py-8 relative z-10">
         {/* Hero Section */}
         <div className="text-center mb-12">
-          <h1 className="font-script text-6xl mb-4 christmas-gradient-text drop-shadow-md pb-2">Sayori Proxy</h1>
-          <p className="text-muted-foreground text-lg mb-6">
-            Router that will never leave you hanging.
+          <h1 className="font-mono text-5xl mb-4 terminal-text glitch text-primary drop-shadow-lg pb-2">SYSTEM.CMD</h1>
+          <p className="text-muted-foreground text-lg mb-6 terminal-text">
+            Neural routing protocol - always online.
           </p>
         </div>
 
@@ -203,12 +202,12 @@ export default function Dashboard() {
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-12">
           <StatCard
-            label="Total Tokens"
+            label="Data Processed"
             value={formatTokens(stats.totalTokens)}
             icon={Activity}
           />
           <StatCard
-            label="Total Requests"
+            label="Total Queries"
             value={stats.totalRequests}
             icon={TrendingUp}
           />
@@ -218,12 +217,12 @@ export default function Dashboard() {
             icon={Zap}
           />
           <StatCard
-            label="Active Request"
+            label="Active Threads"
             value={stats.activeRequests}
             icon={BarChart3}
           />
           <StatCard
-            label="Uptime"
+            label="System Uptime"
             value={formatUptime(stats.uptime)}
             icon={Clock}
           />
@@ -233,14 +232,14 @@ export default function Dashboard() {
         {providers.length > 0 && (
           <div className="mb-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-              <h2 className="text-2xl font-semibold text-primary">Available Models</h2>
+              <h2 className="text-2xl font-mono font-semibold text-primary terminal-text">Available Algorithms</h2>
               <div className="w-full sm:w-64">
                 <input
                   type="text"
-                  placeholder="Search all models..."
+                  placeholder="Scan algorithms..."
                   value={globalModelSearch}
                   onChange={(e) => setGlobalModelSearch(e.target.value)}
-                  className="w-full px-4 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-4 py-2 rounded-sm border bg-background/80 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 glow-border terminal-text"
                 />
               </div>
             </div>
@@ -274,8 +273,8 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-              <p className="text-center text-muted-foreground py-8">
-                No models found matching "{globalModelSearch}"
+              <p className="text-center text-muted-foreground py-8 terminal-text">
+                No algorithms found matching "{globalModelSearch}"
               </p>
             )}
           </div>
@@ -284,10 +283,10 @@ export default function Dashboard() {
 
       {/* Usage Guide Section */}
       <div className="container mx-auto px-6 mb-8">
-        <h2 className="text-2xl font-semibold mb-6 text-primary">Model Usage Guide</h2>
-        <div className="bg-muted/30 rounded-lg p-6 space-y-4">
-          <p className="text-sm text-muted-foreground">
-            When using Sayori Proxy, use the following model IDs in your API requests to <code className="text-xs bg-background px-2 py-1 rounded font-mono border">/v1/chat/completions</code>:
+        <h2 className="text-2xl font-mono font-semibold mb-6 text-primary terminal-text">Protocol Implementation</h2>
+        <div className="bg-muted/30 rounded-sm p-6 space-y-4 glow-border scanlines">
+          <p className="text-sm font-mono text-muted-foreground terminal-text">
+            Execute neural processing via these algorithm IDs in your API requests to <code className="text-xs bg-background/80 px-2 py-1 rounded-sm font-mono border border-border/50 glow-border">/v1/chat/completions</code>:
           </p>
           {sayoriModels.length > 0 ? (
             <div className="space-y-2">
@@ -303,22 +302,22 @@ export default function Dashboard() {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-4">
-                Total models available: {sayoriModels.length} • Click any model to copy
+              <p className="text-xs text-muted-foreground mt-4 terminal-text">
+                Total algorithms available: {sayoriModels.length} • Click any algorithm to copy
               </p>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground italic">(no example present)</p>
+            <p className="text-sm text-muted-foreground italic terminal-text">(no algorithms detected)</p>
           )}
+          </div>
         </div>
+  
+        {/* Footer */}
+        <footer className="border-t border-border/50 mt-12 py-6 bg-background/50">
+          <div className="container mx-auto px-6 text-center text-sm text-muted-foreground terminal-text">
+            <p>SAYORI.PROXY // Neural Interface Active</p>
+          </div>
+        </footer>
       </div>
-
-      {/* Footer */}
-      <footer className="border-t mt-12 py-6">
-        <div className="container mx-auto px-6 text-center text-sm text-muted-foreground">
-          <p>Sayori Proxy - Will you gently open the door?</p>
-        </div>
-      </footer>
-    </div>
-  );
+    );
 }

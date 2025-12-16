@@ -330,31 +330,31 @@ export default function UserManage() {
   // If not authenticated, show login form
   if (!token) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background cyber-grid">
         <Header />
         <main className="container mx-auto px-6 py-8">
           <div className="max-w-md mx-auto">
             <Button
               variant="ghost"
               onClick={() => navigate("/")}
-              className="mb-4"
+              className="mb-4 terminal-text"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Dashboard
+              Return to Command Center
             </Button>
-            <Card>
+            <Card className="glow-border scanlines">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Key className="h-5 w-5" />
-                  User Token Management
+                  Access Key Terminal
                 </CardTitle>
-                <CardDescription>
-                  Enter your user token to access detailed usage statistics
+                <CardDescription className="terminal-text">
+                  Input your access key to view detailed system telemetry
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="token">User Token</Label>
+                  <Label htmlFor="token" className="terminal-text">Access Key</Label>
                   <Input
                     id="token"
                     type="password"
@@ -362,11 +362,11 @@ export default function UserManage() {
                     value={inputToken}
                     onChange={(e) => setInputToken(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                    className="font-mono"
+                    className="font-mono terminal-text"
                   />
                 </div>
-                <Button onClick={handleLogin} className="w-full">
-                  Access Management Dashboard
+                <Button onClick={handleLogin} className="w-full hack-button">
+                  Access System Terminal
                 </Button>
               </CardContent>
             </Card>
@@ -416,7 +416,7 @@ export default function UserManage() {
   const usagePercentage = (data.usage.requestsToday / data.token.maxRPD) * 100;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background cyber-grid">
       <Header />
       <main className="container mx-auto px-6 py-8">
         {/* Header with back button */}
@@ -424,41 +424,42 @@ export default function UserManage() {
           <Button
             variant="ghost"
             onClick={() => navigate("/")}
+            className="terminal-text"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
+            Return to Command Center
           </Button>
-          <Button onClick={handleLogout} variant="outline">
-            Logout
+          <Button onClick={handleLogout} variant="outline" className="terminal-text">
+            Terminate Session
           </Button>
         </div>
 
         {/* Page Title */}
         <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">User Token Management</h1>
-          <p className="text-muted-foreground text-sm md:text-base">
-            Comprehensive usage statistics and analytics for your token
+          <h1 className="text-3xl md:text-4xl font-mono font-bold mb-2 terminal-text">Access Key Terminal</h1>
+          <p className="font-mono text-muted-foreground text-sm md:text-base terminal-text">
+            Comprehensive system telemetry and analytics for your access key
           </p>
         </div>
 
         {/* Token Details Card */}
-        <Card className="mb-6">
+        <Card className="mb-6 glow-border scanlines">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
               <Key className="h-5 w-5" />
-              Token Details
+              Key Configuration
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div>
-              <div className="text-sm text-muted-foreground mb-1">Token Name</div>
+              <div className="text-sm font-mono text-muted-foreground mb-1 terminal-text">Key Identifier</div>
               {isEditingName ? (
                 <div className="flex items-center gap-2">
                   <Input
                     value={editedName}
                     onChange={(e) => setEditedName(e.target.value)}
-                    className="flex-1 text-sm"
-                    placeholder="Enter token name"
+                    className="flex-1 text-sm terminal-text"
+                    placeholder="Enter key identifier"
                     disabled={isUpdatingName}
                   />
                   <Button
@@ -482,7 +483,7 @@ export default function UserManage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <div className="font-semibold text-base md:text-lg break-words flex-1">{data.token.name}</div>
+                  <div className="font-mono font-semibold text-base md:text-lg break-words flex-1 terminal-text">{data.token.name}</div>
                   <Button
                     size="icon"
                     variant="ghost"

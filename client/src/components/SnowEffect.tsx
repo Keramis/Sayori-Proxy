@@ -28,18 +28,18 @@ export function SnowEffect() {
       {snowflakes.map((flake) => (
         <div
           key={flake.id}
-          className="absolute top-[-50px] text-white/80 animate-snow select-none"
+          className="absolute top-[-50px] text-cyan-400/60 animate-snow select-none terminal-text"
           style={{
             left: `${flake.left}%`,
             fontSize: `${flake.size}rem`,
             opacity: flake.opacity,
             animationDuration: `${flake.animationDuration}s`,
             animationDelay: `-${flake.delay}s`,
-            // Removed expensive backdrop-blur and box-shadow
-            textShadow: '0 2px 4px rgba(0,0,0,0.1)', // Minimal shadow for depth
+            textShadow: '0 0 8px rgba(0, 255, 255, 0.5), 0 0 12px rgba(0, 255, 255, 0.3)',
+            filter: 'hue-rotate(180deg)',
           }}
         >
-          ❄
+          {Math.random() > 0.5 ? '❄' : '✦'}
         </div>
       ))}
     </div>
