@@ -1035,9 +1035,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // OpenAI-compatible endpoints
 
   // Get models
-  app.get("/v1/models", async (req: Request, res: Response) => {
+  app.get("/v1/models", userTokenAuth, async (req, res) => {
+    const userToken = (req as any).userToken;
+
+    // Get all enabled providers
     const providers = await storage.getProviders();
-    const enabledProviders = providers.filter((p) => p.enabled);
+    let enabledProviders = providers.filter((p) => p.enabled);
+
+    // Filter providers based on user's allowed providers if specified
+    if (userToken.allowedProviders && userToken.allowedProviders.length > 0) {
+      enabledProviders = enabledProviders.filter((p) =>
+        userToken.allowedProviders.includes(p.id)
+      );
+    }
 
     const allModels = await Promise.all(
       enabledProviders.map(async (provider) => {
