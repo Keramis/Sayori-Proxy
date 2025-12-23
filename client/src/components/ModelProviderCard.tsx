@@ -10,8 +10,9 @@ interface ModelProviderCardProps {
 }
 
 export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }: ModelProviderCardProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [stripeVariant] = useState(() => Math.random() > 0.5 ? 'light' : 'dark');
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -21,20 +22,30 @@ export function ModelProviderCard({ provider, models, color = "bg-emerald-600" }
     model.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const isLight = stripeVariant === 'light';
+
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden break-inside-avoid">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className={`w-full ${color} text-white p-4 flex items-center justify-between hover-elevate active-elevate-2`}
+        className={`w-full relative overflow-hidden ${isLight ? 'candy-stripe-light text-red-700 dark:text-white' : 'candy-stripe-dark text-white'} p-4 flex items-center justify-between hover-elevate active-elevate-2 transition-all duration-300`}
         data-testid={`button-toggle-${provider.toLowerCase()}`}
       >
-        <div className="flex items-center gap-3">
-          <h3 className="text-lg font-semibold">{provider}</h3>
-          <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+        <div className="flex items-center gap-3 relative z-10">
+          <h3 className={`text-lg font-semibold ${isLight ? 'drop-shadow-sm dark:drop-shadow-md' : 'drop-shadow-md'}`}>{provider}</h3>
+          <Badge 
+            variant="secondary" 
+            className={`${isLight ? 'bg-white/60 text-red-700 border-red-200 dark:bg-white/20 dark:text-white dark:border-white/30' : 'bg-white/20 text-white border-white/30'} backdrop-blur-sm shadow-sm`}
+          >
             {searchQuery ? `${filteredModels.length}/${models.length}` : models.length}
           </Badge>
         </div>
-        {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+        <div className="relative z-10">
+           {isExpanded ? 
+             <ChevronUp className={`h-5 w-5 ${isLight ? 'dark:drop-shadow-md' : 'drop-shadow-md'}`} /> : 
+             <ChevronDown className={`h-5 w-5 ${isLight ? 'dark:drop-shadow-md' : 'drop-shadow-md'}`} />
+           }
+        </div>
       </button>
       
       {isExpanded && (

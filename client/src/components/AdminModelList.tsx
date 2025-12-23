@@ -12,13 +12,12 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 
 interface AdminModelListProps {
-  authToken: string;
   providerId: string;
   providerName: string;
   searchQuery?: string;
 }
 
-export function AdminModelList({ authToken, providerId, providerName, searchQuery = "" }: AdminModelListProps) {
+export function AdminModelList({ providerId, providerName, searchQuery = "" }: AdminModelListProps) {
   const { toast } = useToast();
   const [isEnabling, setIsEnabling] = useState(false);
   const [isDisabling, setIsDisabling] = useState(false);
@@ -29,7 +28,7 @@ export function AdminModelList({ authToken, providerId, providerName, searchQuer
 
   const { data: allModels = [], isLoading } = useQuery({
     queryKey: ["/api/admin/providers", providerId, "models"],
-    queryFn: () => api.getProviderModels(authToken, providerId),
+    queryFn: () => api.getProviderModels(providerId),
   });
 
   const models = allModels.filter((model: any) =>
@@ -38,7 +37,7 @@ export function AdminModelList({ authToken, providerId, providerName, searchQuer
 
   const toggleModel = async (id: string, currentState: boolean) => {
     try {
-      await api.updateModel(authToken, id, { enabled: !currentState });
+      await api.updateModel(id, { enabled: !currentState });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
@@ -57,12 +56,16 @@ export function AdminModelList({ authToken, providerId, providerName, searchQuer
   const handleEnableAll = async () => {
     setIsEnabling(true);
     try {
-      await api.enableAllModels(authToken, providerId);
+      const updates = models.map((model: any) => ({
+        id: model.id,
+        enabled: true,
+      }));
+      await api.bulkUpdateModels(providerId, updates);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
         title: "Models Enabled",
-        description: "All models have been enabled",
+        description: `${models.length} model${models.length !== 1 ? 's have' : ' has'} been enabled`,
       });
     } catch (error: any) {
       toast({
@@ -78,12 +81,16 @@ export function AdminModelList({ authToken, providerId, providerName, searchQuer
   const handleDisableAll = async () => {
     setIsDisabling(true);
     try {
-      await api.disableAllModels(authToken, providerId);
+      const updates = models.map((model: any) => ({
+        id: model.id,
+        enabled: false,
+      }));
+      await api.bulkUpdateModels(providerId, updates);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
         title: "Models Disabled",
-        description: "All models have been disabled",
+        description: `${models.length} model${models.length !== 1 ? 's have' : ' has'} been disabled`,
       });
     } catch (error: any) {
       toast({
@@ -109,7 +116,7 @@ export function AdminModelList({ authToken, providerId, providerName, searchQuer
 
     setIsUpdatingCost(true);
     try {
-      await api.updateAllModelsCost(authToken, providerId, cost);
+      await api.updateAllModelsCost(providerId, cost);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
       toast({
         title: "Costs Updated",
@@ -138,7 +145,7 @@ export function AdminModelList({ authToken, providerId, providerName, searchQuer
     }
 
     try {
-      await api.updateModel(authToken, id, { requestCost: cost });
+      await api.updateModel(id, { requestCost: cost });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
       setEditingCost(null);
       toast({

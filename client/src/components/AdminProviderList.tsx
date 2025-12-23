@@ -19,30 +19,39 @@ import {
 import { Edit2 } from "lucide-react";
 import { AdminProviderForm } from "./AdminProviderForm";
 
-interface AdminProviderListProps {
-  authToken: string;
-}
+interface AdminProviderListProps { }
 
-export function AdminProviderList({ authToken }: AdminProviderListProps) {
+export function AdminProviderList({ }: AdminProviderListProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
   const [editingProvider, setEditingProvider] = useState<any>(null);
   const [showKeys, setShowKeys] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
   const [modelSearchMap, setModelSearchMap] = useState<Map<string, string>>(new Map());
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: providersData, isLoading } = useQuery({
     queryKey: ["/api/admin/providers"],
-    queryFn: () => api.getProviders(authToken),
+    queryFn: () => api.getProviders(),
   });
 
   // Ensure providers is always an array
   const providers = Array.isArray(providersData) ? providersData : [];
 
+  // Filter providers based on search query
+  const filteredProviders = providers.filter((provider: any) => {
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesName = provider.name.toLowerCase().includes(query);
+      const matchesUrl = provider.baseUrl.toLowerCase().includes(query);
+      if (!matchesName && !matchesUrl) return false;
+    }
+    return true;
+  });
+
   const toggleProvider = async (id: string, currentState: boolean) => {
     try {
-      await api.updateProvider(authToken, id, { enabled: !currentState });
+      await api.updateProvider(id, { enabled: !currentState });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
@@ -63,11 +72,11 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
       return;
     }
 
-    setDeleting(id); // Set deleting state
     try {
-      await api.deleteProvider(authToken, id);
+      await api.deleteProvider(id);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tokens"] });
       toast({
         title: "Provider Deleted",
         description: "Provider has been deleted successfully",
@@ -78,8 +87,6 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
         description: error.message || "Failed to delete provider",
         variant: "destructive",
       });
-    } finally {
-      setDeleting(null); // Reset deleting state
     }
   };
 
@@ -108,14 +115,41 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
   }
 
   return (
-    <div className="space-y-3">
-      {providers.map((provider: any) => (
+    <div className="space-y-4">
+      {/* Search Section */}
+      <Card className="p-4">
+        <div>
+          <Label htmlFor="provider-search">Search by Name or URL</Label>
+          <Input
+            id="provider-search"
+            placeholder="Search providers..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="mt-1"
+          />
+        </div>
+      </Card>
+
+      {/* Results Count */}
+      {searchQuery && (
+        <div className="text-sm text-muted-foreground">
+          Showing {filteredProviders.length} of {providers.length} providers
+        </div>
+      )}
+
+      {/* Provider List */}
+      {filteredProviders.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          No providers match the current filters.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredProviders.map((provider: any) => (
         <Card key={provider.id} className="p-4" data-testid={`provider-${provider.id}`}>
           {editingProvider?.id === provider.id ? (
             <div className="space-y-3">
               <h3 className="font-semibold text-lg mb-4">Edit Provider</h3>
               <AdminProviderForm
-                authToken={authToken}
                 editProvider={editingProvider}
                 onEditComplete={() => setEditingProvider(null)}
                 onSearchChange={(search) => {
@@ -210,7 +244,6 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
                     </div>
                   )}
                   <AdminModelList
-                    authToken={authToken}
                     providerId={provider.id}
                     providerName={provider.name}
                     searchQuery={modelSearchMap.get(provider.id) || ""}
@@ -220,7 +253,9 @@ export function AdminProviderList({ authToken }: AdminProviderListProps) {
             </div>
           )}
         </Card>
-      ))}
+          ))}
+        </div>
+      )}
     </div>
   );
 }

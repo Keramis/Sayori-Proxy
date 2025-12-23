@@ -57,7 +57,7 @@ const subkeyRenameRateLimit = rateLimit({
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   },
-})
+});
 const chatCompletionsRateLimit = rateLimit({
   windowMs: 1 * 1_000,
   max: 1,
@@ -65,39 +65,30 @@ const chatCompletionsRateLimit = rateLimit({
   legacyHeaders: false,
   message: "Too many requests!",
   handler: (req, res, next, options) => {
-    console.error(`Rate limit triggerd for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
     res.status(options.statusCode).send(options.message);
   }
-})
+});
 
+
+import session from "express-session";
+import connectSqlite3 from "connect-sqlite3";
+import bcrypt from "bcrypt";
+
+const SQLiteStore = connectSqlite3(session);
 
 // Middleware for admin authentication
 function adminAuth(req: Request, res: Response, next: Function) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Basic ")) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if ((req.session as any).adminId) {
+    return next();
   }
-
-  const base64Credentials = authHeader.split(" ")[1];
-  const credentials = Buffer.from(base64Credentials, "base64").toString("ascii");
-  const [username, password] = credentials.split(":");
-
-  storage.getAdminCredentials().then((creds) => {
-    console.log(`[AUTH] Attempting login - Username: ${username}, Expected: ${creds.username}`);
-    console.log(`[AUTH] Password match: ${password === creds.password}`);
-    
-    if (username === creds.username && password === creds.password) {
-      next();
-    } else {
-      res.status(401).json({ error: "Invalid credentials" });
-    }
-  });
+  res.status(401).json({ error: "Unauthorized" });
 }
 
 // Middleware for user token authentication
 async function userTokenAuth(req: Request, res: Response, next: Function) {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  
+
   if (!token) {
     return res.status(401).json({ error: "No token provided" });
   }
@@ -151,45 +142,169 @@ async function flexibleAuth(req: Request, res: Response, next: Function) {
   return userTokenAuth(req, res, next);
 }
 
+// Shared helper to fetch models for a provider and persist them
+const MODEL_SYNC_TIMEOUT_MS = 10_000;
+
+async function syncProviderModels(providerId: string) {
+  const provider = await storage.getProvider(providerId);
+  if (!provider) {
+    throw new Error("Provider not found");
+  }
+
+  const apiKey = await storage.getNextApiKey(provider.id);
+  if (!apiKey) {
+    throw new Error("No API keys configured");
+  }
+
+  // Normalize base URL - remove trailing slash
+  const baseUrl = provider.baseUrl.replace(/\/$/, "");
+  const modelsUrl = `${baseUrl}/models`;
+
+  console.log(`[MODEL SYNC] Fetching models from: ${modelsUrl}`);
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey.key}`,
+    ...(provider.customHeaders || {}),
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MODEL_SYNC_TIMEOUT_MS);
+
+  let response: globalThis.Response;
+  try {
+    response = await fetch(modelsUrl, { headers, signal: controller.signal });
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error(`Model fetch timed out after ${MODEL_SYNC_TIMEOUT_MS / 1000} seconds`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ""}`);
+  }
+
+  const data = await response.json();
+  console.log("[MODEL SYNC] Received data:", JSON.stringify(data).substring(0, 200));
+
+  let modelIds: string[] = [];
+  if (data.data && Array.isArray(data.data)) {
+    modelIds = data.data.map((m: any) => m.id).filter(Boolean);
+  } else if (Array.isArray(data)) {
+    modelIds = data.map((m: any) => m.id).filter(Boolean);
+  } else {
+    throw new Error("Unexpected response format from provider");
+  }
+
+  if (modelIds.length === 0) {
+    throw new Error("No models found in provider response");
+  }
+
+  const sortedModelIds = modelIds.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const models = await storage.replaceProviderModels(provider.id, sortedModelIds);
+
+  return { models, count: models.length };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Behind a proxy/CDN (e.g., Cloudflare) we must trust the first hop so
+  // req.secure reflects the original HTTPS request and X-Forwarded-* works.
+  app.set("trust proxy", 1);
+
   // Enable CORS
   app.use(cors({
-    origin: "*",
+    origin: true, // Allow all origins but reflect request origin
     credentials: true,
   }));
 
+  // Session configuration
+  app.use(session({
+    store: new SQLiteStore({
+      db: 'sessions.sqlite',
+      dir: './'
+    }) as any,
+    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+  }));
+
   // Public routes
+
+
+  app.get("/api/admin/me", async (req: Request, res: Response) => {
+    if (!(req.session as any).adminId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    // We could fetch the admin details here if needed, but for now just returning success
+    // const admin = await storage.getAdminById((req.session as any).adminId);
+    res.json({
+      authenticated: true,
+      adminId: (req.session as any).adminId
+    });
+  });
   
-
+  app.use('/api/admin', adminApiRateLimit);
+  
   // Admin login
-  app.post("/api/admin/login", adminLoginRateLimit, async (req, res) => {
+  app.post("/api/admin/login", adminLoginRateLimit, async (req: Request, res: Response) => {
     const { username, password } = req.body;
-    const creds = await storage.getAdminCredentials();
 
-    console.log(`[LOGIN] Attempt - Username: ${username}, Expected: ${creds.username}`);
-    console.log(`[LOGIN] Password match: ${password === creds.password}`);
+    try {
+      const admin = await storage.getAdmin(username);
 
-    if (username === creds.username && password === creds.password) {
-      const credentials = Buffer.from(`${username}:${password}`).toString("base64");
-      res.json({ success: true, token: `Basic ${credentials}` });
-    } else {
-      res.status(401).json({ error: "Invalid credentials" });
+      if (!admin) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const isValid = await bcrypt.compare(password, admin.password);
+
+      if (isValid) {
+        (req.session as any).adminId = admin.id;
+        req.session.save(() => {
+          res.json({ success: true });
+        });
+      } else {
+        res.status(401).json({ error: "Invalid credentials" });
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.use('/api/admin', adminApiRateLimit);
+
+
+
+  // Admin logout
+  app.post("/api/admin/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Failed to logout" });
+      }
+      res.clearCookie("connect.sid");
+      res.json({ success: true });
+    });
+  });
 
   // Get stats (public)
-  app.get("/api/stats", async (req, res) => {
+  app.get("/api/stats", async (req: Request, res: Response) => {
     const stats = await storage.getStats();
     res.json(stats);
   });
 
   // Get all providers with models (public, only enabled)
-  app.get("/api/providers/public", async (req, res) => {
+  app.get("/api/providers/public", async (req: Request, res: Response) => {
     const providers = await storage.getProviders();
     const enabledProviders = providers.filter((p) => p.enabled);
-    
+
     const providersWithModels = await Promise.all(
       enabledProviders.map(async (provider) => {
         const models = await storage.getModels(provider.id);
@@ -206,7 +321,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User token stats
-  app.post("/api/token/stats", async (req, res) => {
+  app.post("/api/token/stats", async (req: Request, res: Response) => {
     const { token } = req.body;
     const userToken = await storage.getUserToken(token);
 
@@ -219,14 +334,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Calculate model usage with display names
     const modelUsage: Record<string, number> = {};
-    
+
     // Get all models to create a mapping from model UUID to display name
     const allModels = await storage.getModels();
     const modelMap = allModels.reduce((acc, model) => {
       acc[model.id] = model.modelId; // Map UUID to display name - WARNING! THIS IS A ONE TIME RUN FFS
       return acc;
     }, {} as Record<string, string>);
-    
+
     usageRecords.forEach((record) => {
       const displayName = modelMap[record.modelId] || record.modelId; // Fallback to UUID if not found
       modelUsage[displayName] = (modelUsage[displayName] || 0) + 1;
@@ -252,7 +367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User token update name
-  app.patch("/api/token/update-name", subkeyRenameRateLimit, async (req, res) => {
+  app.patch("/api/token/update-name", subkeyRenameRateLimit, async (req: Request, res: Response) => {
     const { token, name } = req.body;
 
     if (!token || !name) {
@@ -261,11 +376,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const nameValidation = checkStringValidity(name);
     if (!nameValidation.valid) {
-      return res.status(400).json({error: nameValidation.error});
+      return res.status(400).json({ error: nameValidation.error });
     }
 
     if (name.length > 50) {
-      return res.status(400).json({error: "Name cannot be greater than 50 characters"});
+      return res.status(400).json({ error: "Name cannot be greater than 50 characters" });
     }
 
     const userToken = await storage.getUserToken(token);
@@ -283,7 +398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User manage - comprehensive token details (requires token authentication)
-  app.post("/api/user/manage", async (req, res) => {
+  app.post("/api/user/manage", async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -312,14 +427,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate model usage breakdown with display names
       const modelUsage: Record<string, { count: number; totalTokens: number; totalCost: number }> = {};
-      
+
       // Get all models to create a mapping from model UUID to display name
       const allModels = await storage.getModels();
       const modelMap = allModels.reduce((acc, model) => {
         acc[model.id] = model.modelId; // Map UUID to display name
         return acc;
       }, {} as Record<string, string>);
-      
+
       usageRecords.forEach((record) => {
         const displayName = modelMap[record.modelId] || record.modelId; // Fallback to UUID if not found
         if (!modelUsage[displayName]) {
@@ -486,7 +601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create sub-key
-  app.post("/api/user/sub-keys", subKeyRateLimit, async (req, res) => {
+  app.post("/api/user/sub-keys", subKeyRateLimit, async (req: Request, res: Response) => {
     const { token, name, maxRPD, maxRPM, allowedProviders, expiresAt } = req.body;
 
     if (!token) {
@@ -495,7 +610,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // validate name
     if (!name || (!(checkStringValidity(name).valid)) || name.length > 50) {
-      return res.status(400).json({error: "Name has to be valid and below 50 characters!"});
+      return res.status(400).json({ error: "Name has to be valid and below 50 characters!" });
     }
 
     const parentToken = await storage.getUserToken(token);
@@ -535,7 +650,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete sub-key (with cascade)
-  app.delete("/api/user/sub-keys/:id", async (req, res) => {
+  app.delete("/api/user/sub-keys/:id", async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -570,7 +685,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Disable sub-key (with cascade)
-  app.post("/api/user/sub-keys/:id/disable", async (req, res) => {
+  app.post("/api/user/sub-keys/:id/disable", async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -605,7 +720,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Enable sub-key (with cascade, but skip expired ones)
-  app.post("/api/user/sub-keys/:id/enable", async (req, res) => {
+  app.post("/api/user/sub-keys/:id/enable", async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -645,9 +760,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin routes (protected)
-  
+
   // Providers
-  app.get("/api/admin/providers", adminAuth, async (req, res) => {
+  app.get("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
     const providers = await storage.getProviders();
     const providersWithCounts = await Promise.all(
       providers.map(async (provider) => {
@@ -663,24 +778,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(providersWithCounts);
   });
 
-  app.post("/api/admin/providers", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
     try {
       const data = insertProviderSchema.parse(req.body);
-      
+
       // Check for duplicate provider name
       const existingProviders = await storage.getProviders();
       if (existingProviders.some(p => p.name.toLowerCase() === data.name.toLowerCase())) {
         return res.status(400).json({ error: "A provider with this name already exists" });
       }
-      
+
       const provider = await storage.createProvider(data);
+
+      // Skip auto-sync at creation time because providers normally have no keys yet.
       res.json(provider);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.patch("/api/admin/providers/:id", adminAuth, async (req, res) => {
+  app.patch("/api/admin/providers/:id", adminAuth, async (req: Request, res: Response) => {
     try {
       // Check for duplicate provider name if name is being updated
       if (req.body.name) {
@@ -689,7 +806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "A provider with this name already exists" });
         }
       }
-      
+
       const provider = await storage.updateProvider(req.params.id, req.body);
       if (!provider) {
         return res.status(404).json({ error: "Provider not found" });
@@ -700,36 +817,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/providers/:id", adminAuth, async (req, res) => {
+  app.delete("/api/admin/providers/:id", adminAuth, async (req: Request, res: Response) => {
     const success = await storage.deleteProvider(req.params.id);
     res.json({ success });
   });
 
   // API Keys
-  app.get("/api/admin/providers/:id/keys", adminAuth, async (req, res) => {
+  app.get("/api/admin/providers/:id/keys", adminAuth, async (req: Request, res: Response) => {
     const keys = await storage.getApiKeys(req.params.id);
     res.json(keys);
   });
 
-  app.post("/api/admin/providers/:id/keys", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers/:id/keys", adminAuth, async (req: Request, res: Response) => {
     try {
       const data = insertApiKeySchema.parse({
         ...req.body,
         providerId: req.params.id,
       });
       const key = await storage.createApiKey(data);
-      res.json(key);
+
+      // Auto-sync models now that we have at least one key
+      let modelSync: { success: boolean; count?: number; error?: string } | undefined;
+      try {
+        const result = await syncProviderModels(req.params.id);
+        modelSync = { success: true, count: result.count };
+      } catch (syncError: any) {
+        console.error("Auto model sync failed after adding key:", syncError);
+        modelSync = { success: false, error: syncError.message };
+      }
+
+      res.json({ ...key, modelSync });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete("/api/admin/keys/:id", adminAuth, async (req, res) => {
+  app.delete("/api/admin/keys/:id", adminAuth, async (req: Request, res: Response) => {
     const success = await storage.deleteApiKey(req.params.id);
     res.json({ success });
   });
 
-  app.patch("/api/admin/keys/:id", adminAuth, async (req, res) => {
+  app.patch("/api/admin/keys/:id", adminAuth, async (req: Request, res: Response) => {
     const { key } = req.body;
     if (!key) {
       return res.status(400).json({ error: "Key is required" });
@@ -742,80 +870,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Models
-  app.get("/api/admin/providers/:id/models", adminAuth, async (req, res) => {
+  app.get("/api/admin/providers/:id/models", adminAuth, async (req: Request, res: Response) => {
     const models = await storage.getModels(req.params.id);
     res.json(models);
   });
 
-  app.post("/api/admin/providers/:id/check-models", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers/:id/check-models", adminAuth, async (req: Request, res: Response) => {
     try {
-      const provider = await storage.getProvider(req.params.id);
-      if (!provider) {
-        return res.status(404).json({ error: "Provider not found" });
-      }
-
-      const apiKey = await storage.getNextApiKey(provider.id);
-      if (!apiKey) {
-        return res.status(400).json({ error: "No API keys configured" });
-      }
-
-      // Normalize base URL - remove trailing slash
-      const baseUrl = provider.baseUrl.replace(/\/$/, '');
-      
-      // Construct the models endpoint URL
-      const modelsUrl = `${baseUrl}/models`;
-
-      console.log(`Fetching models from: ${modelsUrl}`);
-
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey.key}`,
-        ...(provider.customHeaders || {}),
-      };
-
-      console.log("[MODEL CHECK] Request Headers:", headers);
-
-      // Fetch models from provider
-      const response = await fetch(modelsUrl, {
-        headers,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Model fetch failed: ${response.status} ${response.statusText}`, errorText);
-        throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('Received data:', JSON.stringify(data).substring(0, 200));
-      
-      // Handle different response formats
-      let modelIds: string[] = [];
-      if (data.data && Array.isArray(data.data)) {
-        modelIds = data.data.map((m: any) => m.id).filter(Boolean);
-      } else if (Array.isArray(data)) {
-        modelIds = data.map((m: any) => m.id).filter(Boolean);
-      } else {
-        throw new Error('Unexpected response format from provider');
-      }
-
-      if (modelIds.length === 0) {
-        throw new Error('No models found in provider response');
-      }
-
-      // Sort model IDs alphabetically
-      const sortedModelIds = modelIds.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-
-      // Replace all models for the provider in a single operation
-      const models = await storage.replaceProviderModels(provider.id, sortedModelIds);
-
-      res.json({ models, count: models.length });
+      const result = await syncProviderModels(req.params.id);
+      res.json(result);
     } catch (error: any) {
       console.error('Check models error:', error);
+
+      // Map some expected errors to friendlier status codes
+      if (error.message === "Provider not found") {
+        return res.status(404).json({ error: error.message });
+      }
+      if (error.message === "No API keys configured") {
+        return res.status(400).json({ error: error.message });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.patch("/api/admin/models/:id", adminAuth, async (req, res) => {
+  app.patch("/api/admin/models/:id", adminAuth, async (req: Request, res: Response) => {
     const model = await storage.updateModel(req.params.id, req.body);
     if (!model) {
       return res.status(404).json({ error: "Model not found" });
@@ -823,31 +902,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(model);
   });
 
-  app.delete("/api/admin/models/:id", adminAuth, async (req, res) => {
+  app.delete("/api/admin/models/:id", adminAuth, async (req: Request, res: Response) => {
     const success = await storage.deleteModel(req.params.id);
     res.json({ success });
   });
 
   // Bulk model operations
-  app.post("/api/admin/providers/:id/models/enable-all", adminAuth, async (req, res) => {
-    try {
-      const models = await storage.enableAllModelsByProvider(req.params.id);
-      res.json({ success: true, count: models.length });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.post("/api/admin/providers/:id/models/disable-all", adminAuth, async (req, res) => {
-    try {
-      const models = await storage.disableAllModelsByProvider(req.params.id);
-      res.json({ success: true, count: models.length });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.post("/api/admin/providers/:id/models/update-cost-all", adminAuth, async (req, res) => {
+  app.post("/api/admin/providers/:id/models/update-cost-all", adminAuth, async (req: Request, res: Response) => {
     try {
       const { requestCost } = req.body;
       if (!requestCost || requestCost < 1) {
@@ -860,8 +921,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bulk model updates - accepts array of model updates
+  app.patch("/api/admin/providers/:id/models/bulk", adminAuth, async (req: Request, res: Response) => {
+    try {
+      const { updates } = req.body;
+      
+      if (!updates || !Array.isArray(updates)) {
+        return res.status(400).json({ error: "Updates array is required" });
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: "Updates array cannot be empty" });
+      }
+
+      // Validate that all updates have required fields
+      for (const update of updates) {
+        if (!update.id || typeof update.id !== 'string') {
+          return res.status(400).json({ error: "Each update must have a valid 'id' field" });
+        }
+        if (update.enabled === undefined || typeof update.enabled !== 'boolean') {
+          return res.status(400).json({ error: "Each update must have a valid 'enabled' field" });
+        }
+      }
+
+      // Use the efficient bulk update method (single transaction)
+      const updatedModels = await storage.bulkUpdateModelsByIds(updates);
+
+      // Get all models for this provider to return
+      const allModels = await storage.getModels(req.params.id);
+      
+      res.json({
+        success: true,
+        updated: updatedModels.length,
+        models: allModels
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // User Tokens
-  app.get("/api/admin/tokens", adminAuth, async (req, res) => {
+  app.get("/api/admin/tokens", adminAuth, async (req: Request, res: Response) => {
     const tokens = await storage.getUserTokens();
     const tokensWithUsage = await Promise.all(
       tokens.map(async (token) => {
@@ -875,7 +975,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(tokensWithUsage);
   });
 
-  app.post("/api/admin/tokens", adminAuth, async (req, res) => {
+  app.post("/api/admin/tokens", adminAuth, async (req: Request, res: Response) => {
     try {
       const data = insertUserTokenSchema.parse(req.body);
       const token = await storage.createUserToken(data);
@@ -885,7 +985,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/tokens/:id", adminAuth, async (req, res) => {
+  app.patch("/api/admin/tokens/:id", adminAuth, async (req: Request, res: Response) => {
     try {
       const token = await storage.updateUserToken(req.params.id, req.body);
       if (!token) {
@@ -897,12 +997,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/tokens/:id", adminAuth, async (req, res) => {
+  app.delete("/api/admin/tokens/:id", adminAuth, async (req: Request, res: Response) => {
     const success = await storage.deleteUserToken(req.params.id);
     res.json({ success });
   });
 
-  app.get("/api/debug/ip", (req, res) => {
+  app.post("/api/admin/tokens/:id/regenerate", adminAuth, async (req: Request, res: Response) => {
+    try {
+      const token = await storage.regenerateUserToken(req.params.id);
+      if (!token) {
+        return res.status(404).json({ error: "Token not found" });
+      }
+      res.json(token);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/debug/ip", (req: Request, res: Response) => {
     res.json({
       cfConnectingIP: req.get('cf-connecting-ip'),
       forwardedFor: req.get('x-forwarded-for'),
@@ -974,9 +1086,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Chat completions proxy
-  app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req, res) => {
+  app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req: Request, res: Response) => {
     let responseSent = false;
-    
+
     const safeSendError = (statusCode: number, error: string) => {
       console.log(`[DEBUG] safeSendError called: statusCode=${statusCode}, error="${error}", headersSent=${res.headersSent}, responseSent=${responseSent}`);
       if (!res.headersSent && !responseSent) {
@@ -988,7 +1100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error(`[ERROR] headersSent: ${res.headersSent}, responseSent: ${responseSent}`);
       }
     };
-    
+
     try {
       const userToken = (req as any).userToken;
       const { model, temperature, max_tokens, top_p, ...otherParams } = req.body;
@@ -1006,11 +1118,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Find the model and provider
       const allModels = await storage.getModels();
       const providers = await storage.getProviders();
-      
+
       // Try to match model in different formats
       let targetModel: any = null;
       let provider: any = null;
-      
+
       // Format 1: modelId (Provider Name)
       const providerMatch = model.match(/^(.+?)\s+\((.+?)\)$/);
       if (providerMatch) {
@@ -1021,7 +1133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           targetModel = allModels.find((m) => m.modelId === modelId && m.providerId === provider.id);
         }
       }
-      
+
       // Format 2: Just modelId (search regardless of enabled status)
       if (!targetModel) {
         targetModel = allModels.find((m) => m.modelId === model);
@@ -1049,11 +1161,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           models.some(m => m.id === targetModel.id)
         );
         const providerExists = await storage.getProvider(provider.id);
-        
+
         if (!modelExists) {
           return safeSendError(404, `Model '${model}' no longer exists`);
         }
-        
+
         if (!providerExists) {
           return safeSendError(404, `Provider for model '${model}' no longer exists`);
         }
@@ -1084,7 +1196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const messagesPayload = JSON.stringify(requestBody.messages || []);
       const cacheKey = `${userToken.id}:${messagesPayload}`;
       const now = Date.now();
-      
+
       // Clean old cache entries
       payloadCache.forEach((value, key) => {
         if (now - value.timestamp > CACHE_TTL) {
@@ -1163,14 +1275,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Authorization: `Bearer ${apiKey.key}`,
         ...(provider.customHeaders || {}),
       };
-      
-      console.log("[PROXY] Request Headers:", headers);
 
       const response = await fetch(`${provider.baseUrl}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify({ model: targetModel.modelId, ...requestBody }),
       });
+
+      // Check if provider returned an error response
+      if (!response.ok) {
+        console.error(`[${requestId}] Provider error: ${response.status} ${response.statusText}`);
+        // Log the actual error for debugging but don't expose it to the user
+        try {
+          const errorBody = await response.text();
+          console.error(`[${requestId}] Provider error body (not exposed to user): ${errorBody}`);
+        } catch (e) {
+          // Ignore if we can't read the error body
+        }
+        await storage.decrementActiveRequests();
+        // Return generic error message to avoid leaking provider sensitive info like base URL or even token
+        return safeSendError(response.status, "Provider failed to generate response");
+      }
 
       // Check if streaming is requested
       const isStreaming = requestBody.stream === true;
@@ -1193,7 +1318,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let streamedContent = ""; // Collect streamed content for estimation
         let streamOutputTokens = 0; // Track output tokens from usage data
         let streamInputTokens = 0; // Track input tokens from usage data
-        
+
         // FIX: Track tool calls to handle them properly
         let hasToolCalls = false;
         let toolCallChunks: string[] = [];
@@ -1206,7 +1331,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            
+
             const chunk = decoder.decode(value, { stream: true });
 
             // Try to extract token usage from SSE chunks if available
@@ -1243,14 +1368,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (line.startsWith('data: ') && !line.includes('[DONE]')) {
                   const jsonStr = line.slice(6);
                   const parsed = JSON.parse(jsonStr);
-                  
+
                   // FIX: Detect and handle tool calls
                   if (parsed.choices && parsed.choices[0]?.delta?.tool_calls) {
                     hasToolCalls = true;
                     console.log(`[DEBUG] Tool call detected in stream:`, JSON.stringify(parsed.choices[0].delta.tool_calls));
                     toolCallChunks.push(jsonStr);
                   }
-                  
+
                   if (parsed.choices && parsed.choices[0]?.delta?.content) {
                     streamedContent += parsed.choices[0].delta.content;
                   }
@@ -1263,7 +1388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // FIX: Always forward the chunk to maintain streaming
             res.write(value);
           }
-          
+
           // FIX: For tool calls, ensure proper stream termination
           if (hasToolCalls) {
             console.log(`[DEBUG] Tool calls detected, ensuring proper stream termination`);
@@ -1352,7 +1477,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           await storage.decrementActiveRequests();
           console.log(`[DEBUG] Ending streaming response, headersSent: ${res.headersSent}, hasToolCalls: ${hasToolCalls}`);
-          
+
           // CRITICAL FIX: ALWAYS call res.end() for streaming responses to prevent hanging
           // Even if headers are sent, we must properly terminate the connection
           try {
@@ -1452,7 +1577,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error(`[ERROR] Request failed:`, error.message);
       console.error(`[ERROR] Error stack:`, error.stack);
       await storage.decrementActiveRequests();
-      safeSendError(500, error.message);
+      // Return generic error message to avoid leaking sensitive information
+      safeSendError(500, "Provider failed to generate response");
     }
   });
 

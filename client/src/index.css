@@ -26,52 +26,52 @@
 
   --card-border: 0 0% 93%;
 
-  --sidebar: 0 0% 96%;
+  --sidebar: 210 20% 98%;
 
-  --sidebar-foreground: 0 0% 10%;
+  --sidebar-foreground: 210 40% 10%;
 
-  --sidebar-border: 0 0% 91%;
+  --sidebar-border: 210 20% 91%;
 
-  --sidebar-primary: 330 85% 60%;
+  --sidebar-primary: 0 84% 60%;
 
   --sidebar-primary-foreground: 0 0% 100%;
 
-  --sidebar-accent: 330 70% 95%;
+  --sidebar-accent: 210 50% 95%;
 
-  --sidebar-accent-foreground: 330 85% 25%;
+  --sidebar-accent-foreground: 210 90% 25%;
 
-  --sidebar-ring: 330 85% 60%;
+  --sidebar-ring: 0 84% 60%;
 
-  --popover: 0 0% 96%;
+  --popover: 0 0% 100%;
 
-  --popover-foreground: 0 0% 10%;
+  --popover-foreground: 210 40% 10%;
 
-  --popover-border: 0 0% 91%;
+  --popover-border: 210 20% 91%;
 
-  --primary: 330 85% 60%;
+  --primary: 0 84% 60%;
 
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 330 70% 95%;
+  --secondary: 210 50% 95%;
 
-  --secondary-foreground: 330 85% 25%;
+  --secondary-foreground: 210 90% 25%;
 
-  --muted: 0 0% 94%;
+  --muted: 210 20% 96%;
 
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 210 10% 45%;
 
-  --accent: 330 15% 92%;
+  --accent: 210 30% 96%;
 
-  --accent-foreground: 330 85% 30%;
+  --accent-foreground: 210 90% 30%;
 
   --destructive: 0 84% 60%;
 
   --destructive-foreground: 0 0% 100%;
 
-  --input: 0 0% 85%;
-  --ring: 330 85% 60%;
-  --chart-1: 330 85% 55%;
-  --chart-2: 330 70% 45%;
+  --input: 210 20% 85%;
+  --ring: 0 84% 60%;
+  --chart-1: 210 90% 55%;
+  --chart-2: 210 70% 45%;
   --chart-3: 142 71% 45%;
   --chart-4: 38 92% 50%;
   --chart-5: 220 70% 50%;
@@ -144,52 +144,52 @@
 
   --card-border: 0 0% 16%;
 
-  --sidebar: 0 0% 10%;
+  --sidebar: 220 30% 10%;
 
-  --sidebar-foreground: 0 0% 95%;
+  --sidebar-foreground: 210 20% 95%;
 
-  --sidebar-border: 0 0% 14%;
+  --sidebar-border: 220 30% 14%;
 
-  --sidebar-primary: 330 75% 65%;
+  --sidebar-primary: 210 80% 65%;
 
   --sidebar-primary-foreground: 0 0% 100%;
 
-  --sidebar-accent: 330 35% 15%;
+  --sidebar-accent: 210 40% 20%;
 
-  --sidebar-accent-foreground: 330 75% 80%;
+  --sidebar-accent-foreground: 210 80% 80%;
 
-  --sidebar-ring: 330 75% 65%;
+  --sidebar-ring: 210 80% 65%;
 
-  --popover: 0 0% 12%;
+  --popover: 220 30% 12%;
 
-  --popover-foreground: 0 0% 95%;
+  --popover-foreground: 210 20% 95%;
 
-  --popover-border: 0 0% 16%;
+  --popover-border: 220 30% 16%;
 
-  --primary: 330 75% 65%;
+  --primary: 210 80% 65%;
 
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 330 35% 15%;
+  --secondary: 210 40% 20%;
 
-  --secondary-foreground: 330 75% 80%;
+  --secondary-foreground: 210 80% 80%;
 
-  --muted: 0 0% 14%;
+  --muted: 217 30% 18%;
 
-  --muted-foreground: 0 0% 60%;
+  --muted-foreground: 215 20% 65%;
 
-  --accent: 330 20% 16%;
+  --accent: 217 30% 22%;
 
-  --accent-foreground: 330 75% 75%;
+  --accent-foreground: 210 80% 75%;
 
   --destructive: 0 70% 65%;
 
   --destructive-foreground: 0 0% 100%;
 
-  --input: 0 0% 25%;
-  --ring: 330 75% 65%;
-  --chart-1: 330 75% 70%;
-  --chart-2: 330 60% 60%;
+  --input: 217 30% 25%;
+  --ring: 210 80% 65%;
+  --chart-1: 210 80% 70%;
+  --chart-2: 210 60% 60%;
   --chart-3: 142 60% 50%;
   --chart-4: 38 80% 55%;
   --chart-5: 220 65% 60%;
@@ -230,6 +230,73 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+@keyframes snow {
+  0% {
+    transform: translateY(-10vh) translateX(0);
+  }
+  25% {
+    transform: translateY(25vh) translateX(15px);
+  }
+  50% {
+    transform: translateY(50vh) translateX(-15px);
+  }
+  75% {
+    transform: translateY(75vh) translateX(15px);
+  }
+  100% {
+    transform: translateY(110vh) translateX(0);
+  }
+}
+
+.animate-snow {
+  animation-name: snow;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.christmas-gradient-text {
+  @apply bg-clip-text text-transparent;
+  background-image: linear-gradient(to right, #ef4444 60%, #22c55e 100%);
+}
+
+.dark .christmas-gradient-text {
+  background-image: linear-gradient(to right, #ffffff, #c4f0ff, #3b82f6);
+}
+
+/* Gift Patterns - Candy Stripes */
+.candy-stripe-light {
+  background-color: #fefce8;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 20px,
+    #fef08a 20px,
+    #fef08a 40px
+  );
+}
+
+.dark .candy-stripe-light {
+  background-color: #16a34a;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 20px,
+    rgba(255, 255, 255, 0.15) 20px,
+    rgba(255, 255, 255, 0.15) 40px
+  );
+}
+
+.candy-stripe-dark {
+  background-color: #ef4444;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 20px,
+    rgba(255, 255, 255, 0.15) 20px,
+    rgba(255, 255, 255, 0.15) 40px
+  );
 }
 
 @layer base {
@@ -351,5 +418,22 @@
   .border.active-elevate-2:not(.no-active-interaction-elevate)::after,
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
+  }
+}
+
+@layer utilities {
+  .animated-gradient {
+    background-image: linear-gradient(to right, theme('colors.blue.800'), theme('colors.slate.600'), theme('colors.blue.800'));
+    background-size: 200% auto;
+    animation: slide-gradient 2s linear infinite;
+  }
+
+  @keyframes slide-gradient {
+    from {
+      background-position: 0% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
   }
 }

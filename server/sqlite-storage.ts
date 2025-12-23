@@ -3,10 +3,6 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 import {
   Provider,
   InsertProvider,
@@ -20,8 +16,12 @@ import {
   InsertUsageRecord,
   Stats,
   AdminCredentials,
+  Admin,
 } from '@shared/schema';
 import { IStorage } from './storage';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class SQLiteStorage implements IStorage {
   private db: Database.Database;
@@ -30,7 +30,7 @@ export class SQLiteStorage implements IStorage {
 
   constructor(dbPath?: string) {
     const databasePath = dbPath || path.join(process.cwd(), 'database.sqlite');
-    
+
     // Initialize database
     this.db = new Database(databasePath);
     this.db.pragma('foreign_keys = ON');
@@ -40,14 +40,13 @@ export class SQLiteStorage implements IStorage {
   private initializeDatabase(): void {
     try {
       const tableCheck = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='providers'").get();
-      if (tableCheck)
-        return;
-      
+      if (tableCheck) return;
+
       const initScriptPath = path.join(__dirname, 'sqlite-init.sql');
       if (fs.existsSync(initScriptPath)) {
         const initScript = fs.readFileSync(initScriptPath, 'utf8');
         console.log('Initializing fresh database...');
-        
+
         try {
           this.db.exec(initScript);
           console.log('Database initialized successfully');
@@ -168,12 +167,12 @@ export class SQLiteStorage implements IStorage {
     try {
       const id = randomUUID();
       const now = Date.now();
-      
+
       const stmt = this.db.prepare(`
         INSERT INTO providers (id, name, base_url, enabled, created_at, custom_headers, disable_cache_discount)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
-      
+
       stmt.run(
         id,
         provider.name,
@@ -183,7 +182,7 @@ export class SQLiteStorage implements IStorage {
         provider.customHeaders ? JSON.stringify(provider.customHeaders) : null,
         provider.disableCacheDiscount ? 1 : 0
       );
-      
+
       const result = await this.getProvider(id);
       if (!result) {
         throw new Error(`Failed to create provider with ID: ${id}`);
@@ -239,9 +238,50 @@ export class SQLiteStorage implements IStorage {
 
   async deleteProvider(id: string): Promise<boolean> {
     try {
-      const stmt = this.db.prepare('DELETE FROM providers WHERE id = ?');
-      const result = stmt.run(id);
-      return result.changes > 0;
+      const transaction = this.db.transaction((providerId: string) => {
+        const now = Date.now();
+
+        // Clean up scoped keys before deleting the provider so existing databases
+        // don't rely solely on the trigger.
+        const tokens = this.db.prepare(`
+          SELECT id, allowed_providers 
+          FROM user_tokens 
+          WHERE key_type = 'master' AND allowed_providers IS NOT NULL AND deleted_at IS NULL
+        `).all() as { id: string; allowed_providers: string | null }[];
+
+        const updateAllowedProviders = this.db.prepare('UPDATE user_tokens SET allowed_providers = ? WHERE id = ?');
+        const softDeleteToken = this.db.prepare('UPDATE user_tokens SET allowed_providers = ?, deleted_at = ? WHERE id = ?');
+
+        for (const token of tokens) {
+          let providers: string[];
+
+          try {
+            providers = JSON.parse(token.allowed_providers || '[]');
+            if (!Array.isArray(providers)) {
+              continue;
+            }
+          } catch {
+            continue;
+          }
+
+          const filtered = providers.filter((p) => p !== providerId);
+          if (filtered.length === providers.length) {
+            continue; // Provider not in this token's allowed list
+          }
+
+          if (filtered.length === 0) {
+            softDeleteToken.run(JSON.stringify(filtered), now, token.id);
+          } else {
+            updateAllowedProviders.run(JSON.stringify(filtered), token.id);
+          }
+        }
+
+        const stmt = this.db.prepare('DELETE FROM providers WHERE id = ?');
+        const result = stmt.run(providerId);
+        return result.changes > 0;
+      });
+
+      return transaction(id);
     } catch (error) {
       console.error('Error deleting provider:', error);
       throw error;
@@ -263,14 +303,14 @@ export class SQLiteStorage implements IStorage {
   async createApiKey(apiKey: InsertApiKey): Promise<ApiKey> {
     try {
       const id = randomUUID();
-      
+
       const stmt = this.db.prepare(`
         INSERT INTO api_keys (id, provider_id, key, last_used, request_count)
         VALUES (?, ?, ?, ?, ?)
       `);
-      
+
       stmt.run(id, apiKey.providerId, apiKey.key, 0, 0);
-      
+
       const getStmt = this.db.prepare('SELECT * FROM api_keys WHERE id = ?');
       const row = getStmt.get(id);
       return this.rowToApiKey(row);
@@ -295,9 +335,9 @@ export class SQLiteStorage implements IStorage {
     try {
       const stmt = this.db.prepare('UPDATE api_keys SET key = ? WHERE id = ?');
       const result = stmt.run(key, id);
-      
+
       if (result.changes === 0) return undefined;
-      
+
       const getStmt = this.db.prepare('SELECT * FROM api_keys WHERE id = ?');
       const row = getStmt.get(id);
       return this.rowToApiKey(row);
@@ -360,12 +400,12 @@ export class SQLiteStorage implements IStorage {
   async createModel(model: InsertModel): Promise<Model> {
     try {
       const id = randomUUID();
-      
+
       const stmt = this.db.prepare(`
         INSERT INTO models (id, provider_id, model_id, enabled, request_cost)
         VALUES (?, ?, ?, ?, ?)
       `);
-      
+
       stmt.run(
         id,
         model.providerId,
@@ -373,7 +413,7 @@ export class SQLiteStorage implements IStorage {
         model.enabled ? 1 : 0,
         model.requestCost || 1
       );
-      
+
       const getStmt = this.db.prepare('SELECT * FROM models WHERE id = ?');
       const row = getStmt.get(id);
       return this.rowToModel(row);
@@ -571,6 +611,33 @@ export class SQLiteStorage implements IStorage {
     return this.updateModelsByProvider(providerId, { requestCost });
   }
 
+  async bulkUpdateModelsByIds(updates: Array<{ id: string; enabled: boolean }>): Promise<Model[]> {
+    const transaction = this.db.transaction(() => {
+      try {
+        // Prepare the update statement once
+        const updateStmt = this.db.prepare('UPDATE models SET enabled = ? WHERE id = ?');
+        
+        // Execute all updates within the transaction
+        for (const update of updates) {
+          updateStmt.run(update.enabled ? 1 : 0, update.id);
+        }
+        
+        // Fetch and return all updated models
+        const modelIds = updates.map(u => u.id);
+        const placeholders = modelIds.map(() => '?').join(',');
+        const getStmt = this.db.prepare(`SELECT * FROM models WHERE id IN (${placeholders})`);
+        const rows = getStmt.all(...modelIds);
+        
+        return rows.map(this.rowToModel);
+      } catch (error) {
+        console.error('Error in bulkUpdateModelsByIds transaction:', error);
+        throw error;
+      }
+    });
+
+    return transaction();
+  }
+
   // User Token methods
   async getUserTokens(): Promise<UserToken[]> {
     try {
@@ -610,14 +677,14 @@ export class SQLiteStorage implements IStorage {
       const id = randomUUID();
       const token = "sk_" + randomUUID().replace(/-/g, "");
       const now = Date.now();
-      
+
       const stmt = this.db.prepare(`
         INSERT INTO user_tokens (
           id, name, token, max_rpd, max_rpm, created_at, allowed_providers,
           parent_token_id, key_type, expires_at, enabled, sigma_boy, max_sub_keys
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      
+
       stmt.run(
         id,
         userToken.name,
@@ -633,7 +700,7 @@ export class SQLiteStorage implements IStorage {
         userToken.sigmaBoy ? 1 : 0,
         userToken.maxSubKeys || 20
       );
-      
+
       const result = await this.getUserTokenById(id);
       if (!result) {
         throw new Error(`Failed to create user token with ID: ${id}`);
@@ -718,6 +785,21 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
+  async regenerateUserToken(id: string): Promise<UserToken | undefined> {
+    try {
+      const newToken = "sk_" + randomUUID().replace(/-/g, "");
+      const stmt = this.db.prepare('UPDATE user_tokens SET token = ? WHERE id = ?');
+      const result = stmt.run(newToken, id);
+
+      if (result.changes === 0) return undefined;
+
+      return this.getUserTokenById(id);
+    } catch (error) {
+      console.error('Error regenerating user token:', error);
+      throw error;
+    }
+  }
+
   // Sub-key specific methods
   async getSubKeys(parentTokenId: string): Promise<UserToken[]> {
     try {
@@ -740,9 +822,9 @@ export class SQLiteStorage implements IStorage {
       while (currentId && iterations < maxIterations) {
         const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ? AND deleted_at IS NULL');
         const row: any = stmt.get(currentId);
-        
+
         if (!row) break;
-        
+
         chain.push(this.rowToUserToken(row));
         currentId = row.parent_token_id;
         iterations++;
@@ -779,7 +861,7 @@ export class SQLiteStorage implements IStorage {
         WHERE parent_token_id = ? AND deleted_at IS NULL
       `);
       const result = stmt.get(parentTokenId) as { total_rpd: number; total_rpm: number };
-      
+
       return {
         rpd: Number(result.total_rpd.toFixed(2)),
         rpm: Number(result.total_rpm.toFixed(2)),
@@ -812,7 +894,7 @@ export class SQLiteStorage implements IStorage {
       // Check sub-key count limit
       const existingSubKeys = await this.getSubKeys(parentTokenId);
       const maxSubKeys = parent.maxSubKeys || 20;
-      
+
       if (existingSubKeys.length >= maxSubKeys) {
         return {
           valid: false,
@@ -842,7 +924,7 @@ export class SQLiteStorage implements IStorage {
       const newTotalRPM = allocated.rpm + Math.abs(requestedRPM);
 
       if (newTotalRPD > parent.maxRPD) {
-        return { 
+        return {
           valid: false,
           reason: `Exceeds parent RPD limit. Available: ${parent.maxRPD - allocated.rpd}, Requested: ${requestedRPD}`,
         };
@@ -934,10 +1016,10 @@ export class SQLiteStorage implements IStorage {
 
   async createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void> {
     console.log(`[DEBUG] createUsageRecordForChain called for tokenId: ${tokenId}`);
-    
+
     // FIX: Don't use transaction for async operations - handle manually
     try {
-      console.log(`[DEBUG] Getting ancestor chain for tokenId: ${tokenId}`);
+      console.log(`[DEBUG] Getting ancestor chain for tokenId: ${tokenId} `);
       const chain = await this.getAncestorChain(tokenId);
       console.log(`[DEBUG] Found ${chain.length} tokens in ancestor chain`);
 
@@ -1021,6 +1103,7 @@ export class SQLiteStorage implements IStorage {
 
       for (const subKey of subKeys) {
         const isExpired = subKey.expiresAt && subKey.expiresAt <= Date.now();
+
         if (!isExpired) {
           await this.updateUserToken(subKey.id, { disabled: false });
           totalEnabled++;
@@ -1041,30 +1124,30 @@ export class SQLiteStorage implements IStorage {
     try {
       const id = randomUUID();
       const now = Date.now();
-      
+
       const userTokenCheck = this.db.prepare('SELECT id FROM user_tokens WHERE id = ?').get(record.userTokenId);
       const modelCheck = this.db.prepare('SELECT id FROM models WHERE id = ?').get(record.modelId);
       const providerCheck = this.db.prepare('SELECT id FROM providers WHERE id = ?').get(record.providerId);
-      
+
       if (!userTokenCheck) {
         throw new Error(`Foreign key constraint failed: user_token_id '${record.userTokenId}' does not exist in user_tokens table`);
       }
-      
+
       if (!modelCheck) {
         throw new Error(`Foreign key constraint failed: model_id '${record.modelId}' does not exist in models table`);
       }
-      
+
       if (!providerCheck) {
         throw new Error(`Foreign key constraint failed: provider_id '${record.providerId}' does not exist in providers table`);
       }
-      
+
       const stmt = this.db.prepare(`
-        INSERT INTO usage_records (
-          id, user_token_id, model_id, provider_id, tokens, input_tokens,
-          output_tokens, timestamp, cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      
+        INSERT INTO usage_records(
+        id, user_token_id, model_id, provider_id, tokens, input_tokens,
+        output_tokens, timestamp, cost
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
       stmt.run(
         id,
         record.userTokenId,
@@ -1076,7 +1159,7 @@ export class SQLiteStorage implements IStorage {
         now,
         record.cost || 1
       );
-      
+
       const getStmt = this.db.prepare('SELECT * FROM usage_records WHERE id = ?');
       const row = getStmt.get(id);
       return this.rowToUsageRecord(row);
@@ -1101,14 +1184,14 @@ export class SQLiteStorage implements IStorage {
     try {
       const now = new Date();
       const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-      
+
       const stmt = this.db.prepare(`
         SELECT COALESCE(SUM(cost), 0) as total_cost
         FROM usage_records 
         WHERE user_token_id = ? AND timestamp >= ?
       `);
       const result = stmt.get(userTokenId, today) as { total_cost: number };
-      
+
       return Number(result.total_cost.toFixed(2));
     } catch (error) {
       console.error('Error getting today usage count:', error);
@@ -1119,14 +1202,14 @@ export class SQLiteStorage implements IStorage {
   async getMinuteUsageCount(userTokenId: string): Promise<number> {
     try {
       const oneMinuteAgo = Date.now() - 60000;
-      
+
       const stmt = this.db.prepare(`
         SELECT COALESCE(SUM(cost), 0) as total_cost
         FROM usage_records 
         WHERE user_token_id = ? AND timestamp >= ?
       `);
       const result = stmt.get(userTokenId, oneMinuteAgo) as { total_cost: number };
-      
+
       return Number(result.total_cost.toFixed(2));
     } catch (error) {
       console.error('Error getting minute usage count:', error);
@@ -1140,13 +1223,13 @@ export class SQLiteStorage implements IStorage {
       const totalTokensStmt = this.db.prepare('SELECT CAST(value AS INTEGER) as value FROM system_config WHERE key = ?');
       const totalTokensResult = totalTokensStmt.get('total_tokens_all') as { value: number } | undefined;
       const totalTokens = totalTokensResult?.value || 0;
-      
+
       const totalRequestsStmt = this.db.prepare('SELECT CAST(value AS INTEGER) as value FROM system_config WHERE key = ?');
       const totalRequestsResult = totalRequestsStmt.get('total_requests_all') as { value: number } | undefined;
       const totalRequests = totalRequestsResult?.value || 0;
-      
+
       const uptime = Math.floor((Date.now() - this.startTime) / 1000);
-      
+
       return {
         totalTokens,
         totalRequests,
@@ -1169,23 +1252,59 @@ export class SQLiteStorage implements IStorage {
   }
 
   // Admin methods
-  async getAdminCredentials(): Promise<AdminCredentials> {
-    return {
-      username: process.env.ADMIN_USERNAME || "admin",
-      password: process.env.ADMIN_PASSWORD || "admin",
-    };
+  async getAdmin(username: string): Promise<Admin | undefined> {
+    try {
+      const stmt = this.db.prepare('SELECT * FROM admins WHERE username = ?');
+      const row = stmt.get(username);
+      if (!row) return undefined;
+
+      return {
+        id: (row as any).id,
+        username: (row as any).username,
+        password: (row as any).password,
+        createdAt: (row as any).created_at,
+      };
+    } catch (error) {
+      console.error('Error getting admin:', error);
+      throw error;
+    }
   }
 
-  async updateAdminCredentials(credentials: AdminCredentials): Promise<void> {
-    throw new Error("Admin credentials must be updated in the .env file, not in the database");
+  async createAdmin(username: string, password: string): Promise<Admin> {
+    try {
+      const id = randomUUID();
+      const now = Date.now();
+
+      const stmt = this.db.prepare(`
+        INSERT INTO admins(id, username, password, created_at)
+    VALUES(?, ?, ?, ?)
+      `);
+
+      stmt.run(id, username, password, now);
+
+      return {
+        id,
+        username,
+        password,
+        createdAt: now,
+      };
+    } catch (error) {
+      console.error('Error creating admin:', error);
+      throw error;
+    }
   }
 
   // Auth methods
   async getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth"> {
     try {
-      const stmt = this.db.prepare('SELECT JSON_EXTRACT(value, \'$\') as value FROM system_config WHERE key = ?');
+      const stmt = this.db.prepare('SELECT value FROM system_config WHERE key = ?');
       const row = stmt.get('auth_mode') as { value: string } | undefined;
-      return row?.value as "user_tokens" | "general_password" | "no_auth" || "user_tokens";
+      // Parse the JSON string value if it's stored as JSON
+      let value = row?.value;
+      if (value && (value.startsWith('"') || value.startsWith("'"))) {
+        value = JSON.parse(value);
+      }
+      return (value as "user_tokens" | "general_password" | "no_auth") || "user_tokens";
     } catch (error) {
       console.error('Error getting auth mode:', error);
       return "user_tokens";

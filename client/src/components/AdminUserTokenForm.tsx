@@ -10,31 +10,38 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 
-interface AdminUserTokenFormProps {
-  authToken: string;
-}
+interface AdminUserTokenFormProps { }
 
-export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
+export function AdminUserTokenForm({ }: AdminUserTokenFormProps) {
   const [tokenName, setTokenName] = useState("");
   const [maxRPD, setMaxRPD] = useState("");
   const [maxRPM, setMaxRPM] = useState("");
   const [allowedProviders, setAllowedProviders] = useState<string[]>([]);
   const [sigmaBoy, setSigmaBoy] = useState(false);
   const [maxSubKeys, setMaxSubKeys] = useState("20");
+  const [providerSearchQuery, setProviderSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
   const { data: providers = [] } = useQuery({
     queryKey: ["/api/admin/providers"],
-    queryFn: () => api.getProviders(authToken),
+    queryFn: () => api.getProviders(),
   });
+
+  const sortedProviders = [...providers].sort((a: any, b: any) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  );
+
+  const filteredProviders = sortedProviders.filter((provider: any) =>
+    provider.name.toLowerCase().includes(providerSearchQuery.toLowerCase())
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const result = await api.createUserToken(authToken, {
+      const result = await api.createUserToken({
         name: tokenName,
         maxRPD: parseInt(maxRPD),
         maxRPM: parseInt(maxRPM),
@@ -164,9 +171,17 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
           <p className="text-sm text-muted-foreground">
             Leave empty to allow all providers. Select specific providers to restrict access.
           </p>
-          {providers.length > 0 ? (
-            <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
-              {providers.map((provider: any) => (
+          {sortedProviders.length > 0 ? (
+            <>
+              <Input
+                placeholder="Search providers..."
+                value={providerSearchQuery}
+                onChange={(e) => setProviderSearchQuery(e.target.value)}
+                className="mb-2"
+              />
+              <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
+                {filteredProviders.length > 0 ? (
+                  filteredProviders.map((provider: any) => (
                 <div key={provider.id} className="flex items-center space-x-2">
                   <Checkbox
                     id={`provider-${provider.id}`}
@@ -186,8 +201,12 @@ export function AdminUserTokenForm({ authToken }: AdminUserTokenFormProps) {
                     {provider.name}
                   </label>
                 </div>
-              ))}
-            </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No providers match your search</p>
+                )}
+              </div>
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">No providers available</p>
           )}
