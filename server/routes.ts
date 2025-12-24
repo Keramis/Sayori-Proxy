@@ -38,7 +38,7 @@ const adminApiRateLimit = rateLimit({
 });
 const subKeyRateLimit = rateLimit({
   windowMs: 5 * 1_000,
-  max: 1,
+  max: 3,
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many requests!",
@@ -49,7 +49,7 @@ const subKeyRateLimit = rateLimit({
 });
 const subkeyRenameRateLimit = rateLimit({
   windowMs: 10 * 1_000,
-  max: 1,
+  max: 3,
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many requests!",
@@ -60,7 +60,7 @@ const subkeyRenameRateLimit = rateLimit({
 });
 const chatCompletionsRateLimit = rateLimit({
   windowMs: 1 * 1_000,
-  max: 1,
+  max: 2,
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many requests!",
@@ -231,6 +231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     saveUninitialized: false,
     cookie: {
       secure: process.env.NODE_ENV === 'production',
+      httpOnly: process.env.NODE_ENV === 'production',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
   }));
@@ -243,11 +244,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).json({ error: "Not authenticated" });
     }
     
-    // We could fetch the admin details here if needed, but for now just returning success
-    // const admin = await storage.getAdminById((req.session as any).adminId);
     res.json({
-      authenticated: true,
-      adminId: (req.session as any).adminId
+      authenticated: true
     });
   });
   
