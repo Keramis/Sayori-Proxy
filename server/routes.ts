@@ -1123,7 +1123,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let provider: any = null;
 
       // Format 1: modelId (Provider Name)
-      const providerMatch = model.match(/^(.+?)\s+\((.+?)\)$/);
+      const providerMatch = model.match(/^(.+)\s+\((.+?)\)$/);
       if (providerMatch) {
         const [, modelId, providerName] = providerMatch;
         const foundProvider = providers.find((p) => p.name === providerName);
