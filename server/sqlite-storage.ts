@@ -40,39 +40,50 @@ export class SQLiteStorage implements IStorage {
   private initializeDatabase(): void {
     try {
       const tableCheck = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='providers'").get();
-      if (tableCheck) return;
+      if (!tableCheck) {
+        const initScriptPath = path.join(__dirname, 'sqlite-init.sql');
+        if (fs.existsSync(initScriptPath)) {
+          const initScript = fs.readFileSync(initScriptPath, 'utf8');
+          console.log('Initializing fresh database...');
 
-      const initScriptPath = path.join(__dirname, 'sqlite-init.sql');
-      if (fs.existsSync(initScriptPath)) {
-        const initScript = fs.readFileSync(initScriptPath, 'utf8');
-        console.log('Initializing fresh database...');
+          try {
+            this.db.exec(initScript);
+            console.log('Database initialized successfully');
+          } catch (error) {
+            console.error('Error executing full script, trying statement by statement:', error);
 
-        try {
-          this.db.exec(initScript);
-          console.log('Database initialized successfully');
-        } catch (error) {
-          console.error('Error executing full script, trying statement by statement:', error);
-
-          const statements = initScript.split(';').filter(stmt => stmt.trim().length > 0);
-          for (let i = 0; i < statements.length; i++) {
-            const statement = statements[i].trim();
-            if (statement) {
-              try {
-                console.log(`Executing statement ${i + 1}/${statements.length}:`, statement.substring(0, 100) + '...');
-                this.db.exec(statement + ';');
-              } catch (stmtError) {
-                console.error(`Error in statement ${i + 1}:`, statement);
-                throw stmtError;
+            const statements = initScript.split(';').filter(stmt => stmt.trim().length > 0);
+            for (let i = 0; i < statements.length; i++) {
+              const statement = statements[i].trim();
+              if (statement) {
+                try {
+                  console.log(`Executing statement ${i + 1}/${statements.length}:`, statement.substring(0, 100) + '...');
+                  this.db.exec(statement + ';');
+                } catch (stmtError) {
+                  console.error(`Error in statement ${i + 1}:`, statement);
+                  throw stmtError;
+                }
               }
             }
           }
+        } else {
+          throw new Error(`SQLite initialization script not found at ${initScriptPath}`);
         }
-      } else {
-        throw new Error(`SQLite initialization script not found at ${initScriptPath}`);
       }
+
+      this.ensureModelTokenLimitColumn();
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
+    }
+  }
+
+  private ensureModelTokenLimitColumn(): void {
+    const columns = this.db.prepare("PRAGMA table_info(models)").all() as { name: string }[];
+    if (columns.length === 0) return;
+    const hasTokenLimit = columns.some((column) => column.name === "token_limit");
+    if (!hasTokenLimit) {
+      this.db.exec("ALTER TABLE models ADD COLUMN token_limit INTEGER");
     }
   }
 
@@ -105,6 +116,7 @@ export class SQLiteStorage implements IStorage {
       modelId: row.model_id,
       enabled: Boolean(row.enabled),
       requestCost: row.request_cost,
+      tokenLimit: row.token_limit ?? null,
     };
   }
 
@@ -402,8 +414,8 @@ export class SQLiteStorage implements IStorage {
       const id = randomUUID();
 
       const stmt = this.db.prepare(`
-        INSERT INTO models (id, provider_id, model_id, enabled, request_cost)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO models (id, provider_id, model_id, enabled, request_cost, token_limit)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -411,7 +423,8 @@ export class SQLiteStorage implements IStorage {
         model.providerId,
         model.modelId,
         model.enabled ? 1 : 0,
-        model.requestCost || 1
+        model.requestCost || 1,
+        model.tokenLimit ?? null
       );
 
       const getStmt = this.db.prepare('SELECT * FROM models WHERE id = ?');
@@ -439,6 +452,10 @@ export class SQLiteStorage implements IStorage {
       if (model.requestCost !== undefined) {
         updates.push('request_cost = ?');
         values.push(model.requestCost);
+      }
+      if (model.tokenLimit !== undefined) {
+        updates.push('token_limit = ?');
+        values.push(model.tokenLimit);
       }
 
       if (updates.length === 0) {
@@ -520,10 +537,10 @@ export class SQLiteStorage implements IStorage {
           // New model - create it
           const id = randomUUID();
           const insertStmt = this.db.prepare(`
-            INSERT INTO models (id, provider_id, model_id, enabled, request_cost)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO models (id, provider_id, model_id, enabled, request_cost, token_limit)
+            VALUES (?, ?, ?, ?, ?, ?)
           `);
-          insertStmt.run(id, providerId, modelId, 1, 1);
+          insertStmt.run(id, providerId, modelId, 1, 1, null);
           
           resultModels.push({
             id,
@@ -531,6 +548,7 @@ export class SQLiteStorage implements IStorage {
             modelId,
             enabled: true,
             requestCost: 1,
+            tokenLimit: null,
           });
         }
       }
@@ -573,6 +591,10 @@ export class SQLiteStorage implements IStorage {
           updateFields.push('request_cost = ?');
           values.push(updates.requestCost);
         }
+        if (updates.tokenLimit !== undefined) {
+          updateFields.push('token_limit = ?');
+          values.push(updates.tokenLimit);
+        }
 
         if (updateFields.length === 0) {
           const getStmt = this.db.prepare('SELECT * FROM models WHERE provider_id = ?');
@@ -611,15 +633,33 @@ export class SQLiteStorage implements IStorage {
     return this.updateModelsByProvider(providerId, { requestCost });
   }
 
-  async bulkUpdateModelsByIds(updates: Array<{ id: string; enabled: boolean }>): Promise<Model[]> {
+  async bulkUpdateModelsByIds(updates: Array<{ id: string; enabled?: boolean; requestCost?: number; tokenLimit?: number | null }>): Promise<Model[]> {
     const transaction = this.db.transaction(() => {
       try {
-        // Prepare the update statement once
-        const updateStmt = this.db.prepare('UPDATE models SET enabled = ? WHERE id = ?');
-        
         // Execute all updates within the transaction
         for (const update of updates) {
-          updateStmt.run(update.enabled ? 1 : 0, update.id);
+          const updateFields: string[] = [];
+          const values: any[] = [];
+
+          if (typeof update.enabled === 'boolean') {
+            updateFields.push('enabled = ?');
+            values.push(update.enabled ? 1 : 0);
+          }
+          if (typeof update.requestCost === 'number') {
+            updateFields.push('request_cost = ?');
+            values.push(update.requestCost);
+          }
+          if (update.tokenLimit !== undefined) {
+            updateFields.push('token_limit = ?');
+            values.push(update.tokenLimit);
+          }
+
+          if (updateFields.length === 0) {
+            continue;
+          }
+
+          const updateStmt = this.db.prepare(`UPDATE models SET ${updateFields.join(', ')} WHERE id = ?`);
+          updateStmt.run(...values, update.id);
         }
         
         // Fetch and return all updated models

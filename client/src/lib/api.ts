@@ -262,7 +262,7 @@ export const api = {
       return res.json();
     }),
 
-  bulkUpdateModels: (providerId: string, updates: Array<{ id: string; enabled: boolean }>) =>
+  bulkUpdateModels: (providerId: string, updates: Array<{ id: string; enabled?: boolean; requestCost?: number; tokenLimit?: number | null }>) =>
     fetch(`/api/admin/providers/${providerId}/models/bulk`, {
       method: "PATCH",
       headers: {

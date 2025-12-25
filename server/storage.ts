@@ -398,6 +398,7 @@ export class JSONStorage implements IStorage {
       id: randomUUID(),
       ...model,
       requestCost: model.requestCost || 1,
+      tokenLimit: model.tokenLimit ?? null,
     };
     this.db.models.push(newModel);
     this.forceSave();
@@ -436,6 +437,7 @@ export class JSONStorage implements IStorage {
       modelId: modelId,
       enabled: true,
       requestCost: 1,
+      tokenLimit: null,
     }));
 
     this.db.models.push(...newModels);
