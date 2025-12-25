@@ -11,7 +11,7 @@ import {
   insertUserTokenSchema,
 } from "@shared/schema";
 import { rateLimit } from 'express-rate-limit';
-import { checkStringValidity, getClientIP } from '../tools/utils';
+import { checkStringValidity, countInputTokens, estimateTokens, getClientIP } from '../tools/utils';
 
 /* DEFINING RATE LIMIT FUNCITONS UP IN HERE */
 const adminLoginRateLimit = rateLimit({
@@ -938,8 +938,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!update.id || typeof update.id !== 'string') {
           return res.status(400).json({ error: "Each update must have a valid 'id' field" });
         }
-        if (update.enabled === undefined || typeof update.enabled !== 'boolean') {
-          return res.status(400).json({ error: "Each update must have a valid 'enabled' field" });
+
+        let hasUpdateField = false;
+
+        if (update.enabled !== undefined) {
+          if (typeof update.enabled !== 'boolean') {
+            return res.status(400).json({ error: "Each update must have a valid 'enabled' field" });
+          }
+          hasUpdateField = true;
+        }
+
+        if (update.requestCost !== undefined) {
+          if (typeof update.requestCost !== 'number' || update.requestCost < 1) {
+            return res.status(400).json({ error: "Each update must have a valid 'requestCost' field" });
+          }
+          hasUpdateField = true;
+        }
+
+        if (update.tokenLimit !== undefined) {
+          if (update.tokenLimit !== null && (typeof update.tokenLimit !== 'number' || update.tokenLimit < 1)) {
+            return res.status(400).json({ error: "Each update must have a valid 'tokenLimit' field" });
+          }
+          hasUpdateField = true;
+        }
+
+        if (!hasUpdateField) {
+          return res.status(400).json({ error: "Each update must include at least one field to update" });
         }
       }
 
@@ -1072,18 +1096,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const payloadCache = new Map<string, { timestamp: number; payload: string }>();
   const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache TTL
 
-  // Helper function to estimate tokens from text (roughly 4 chars per token)
-  function estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
-  }
-
-  // Helper function to count input tokens from messages
-  function countInputTokens(messages: any[]): number {
-    if (!Array.isArray(messages)) return 0;
-    const messageText = JSON.stringify(messages);
-    return estimateTokens(messageText);
-  }
-
   // Chat completions proxy
   app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req: Request, res: Response) => {
     let responseSent = false;
@@ -1177,6 +1189,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (userToken.allowedProviders && userToken.allowedProviders.length > 0) {
         if (!userToken.allowedProviders.includes(provider.id)) {
           return safeSendError(403, `You don't have access to ${targetModel.modelId} from ${provider.name}`);
+        }
+      }
+
+      if (targetModel.tokenLimit !== null && targetModel.tokenLimit !== undefined) {
+        const limit = Number(targetModel.tokenLimit);
+        if (Number.isFinite(limit) && inputTokens > limit) {
+          return safeSendError(400, `Context size too large! Valid: [${limit}], sent: [${inputTokens}]`);
         }
       }
 

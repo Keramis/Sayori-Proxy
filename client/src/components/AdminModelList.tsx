@@ -22,9 +22,13 @@ export function AdminModelList({ providerId, providerName, searchQuery = "" }: A
   const [isEnabling, setIsEnabling] = useState(false);
   const [isDisabling, setIsDisabling] = useState(false);
   const [isUpdatingCost, setIsUpdatingCost] = useState(false);
+  const [isUpdatingTokenLimit, setIsUpdatingTokenLimit] = useState(false);
   const [bulkCost, setBulkCost] = useState("1");
+  const [bulkTokenLimit, setBulkTokenLimit] = useState("");
   const [editingCost, setEditingCost] = useState<string | null>(null);
   const [tempCost, setTempCost] = useState<string>("");
+  const [editingTokenLimit, setEditingTokenLimit] = useState<string | null>(null);
+  const [tempTokenLimit, setTempTokenLimit] = useState<string>("");
 
   const { data: allModels = [], isLoading } = useQuery({
     queryKey: ["/api/admin/providers", providerId, "models"],
@@ -116,11 +120,15 @@ export function AdminModelList({ providerId, providerName, searchQuery = "" }: A
 
     setIsUpdatingCost(true);
     try {
-      await api.updateAllModelsCost(providerId, cost);
+      const updates = models.map((model: any) => ({
+        id: model.id,
+        requestCost: cost,
+      }));
+      await api.bulkUpdateModels(providerId, updates);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
       toast({
         title: "Costs Updated",
-        description: `All models now cost ${cost} request(s)`,
+        description: `${models.length} model${models.length !== 1 ? "s" : ""} now cost ${cost} request(s)`,
       });
     } catch (error: any) {
       toast({
@@ -130,6 +138,44 @@ export function AdminModelList({ providerId, providerName, searchQuery = "" }: A
       });
     } finally {
       setIsUpdatingCost(false);
+    }
+  };
+
+  const handleUpdateAllTokenLimits = async () => {
+    const trimmedLimit = bulkTokenLimit.trim();
+    const limit = trimmedLimit === "" ? null : parseInt(trimmedLimit);
+
+    if (limit !== null && (isNaN(limit) || limit < 1)) {
+      toast({
+        title: "Invalid Input",
+        description: "Token limit must be at least 1",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingTokenLimit(true);
+    try {
+      const updates = models.map((model: any) => ({
+        id: model.id,
+        tokenLimit: limit,
+      }));
+      await api.bulkUpdateModels(providerId, updates);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
+      toast({
+        title: "Token Limits Updated",
+        description: limit === null
+          ? `Token limits cleared for ${models.length} model${models.length !== 1 ? "s" : ""}`
+          : `Token limit set to ${limit} token(s) for ${models.length} model${models.length !== 1 ? "s" : ""}`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update token limits",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingTokenLimit(false);
     }
   };
 
@@ -156,6 +202,35 @@ export function AdminModelList({ providerId, providerName, searchQuery = "" }: A
       toast({
         title: "Error",
         description: error.message || "Failed to update model cost",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateModelTokenLimit = async (id: string, newLimit: string) => {
+    const trimmedLimit = newLimit.trim();
+    const limit = trimmedLimit === "" ? null : parseInt(trimmedLimit);
+    if (limit !== null && (isNaN(limit) || limit < 1)) {
+      toast({
+        title: "Invalid Input",
+        description: "Token limit must be at least 1",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await api.updateModel(id, { tokenLimit: limit });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "models"] });
+      setEditingTokenLimit(null);
+      toast({
+        title: "Token Limit Updated",
+        description: "Model token limit updated successfully",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update model token limit",
         variant: "destructive",
       });
     }
@@ -205,31 +280,60 @@ export function AdminModelList({ providerId, providerName, searchQuery = "" }: A
         </div>
       </div>
 
-      <div className="p-3 rounded-md border bg-muted/30 mb-3">
-        <Label className="text-sm font-medium mb-2 block">Bulk Update Request Cost</Label>
-        <div className="flex gap-2 items-end flex-wrap">
-          <div className="flex-1 min-w-[100px]">
-            <Input
-              type="number"
-              min="1"
-              value={bulkCost}
-              onChange={(e) => setBulkCost(e.target.value)}
-              placeholder="Request cost"
-              className="h-8"
-            />
+      <div className="p-3 rounded-md border bg-muted/30 mb-3 space-y-4">
+        <div>
+          <Label className="text-sm font-medium mb-2 block">Bulk Update Request Cost</Label>
+          <div className="flex gap-2 items-end flex-wrap">
+            <div className="flex-1 min-w-[100px]">
+              <Input
+                type="number"
+                min="1"
+                value={bulkCost}
+                onChange={(e) => setBulkCost(e.target.value)}
+                placeholder="Request cost"
+                className="h-8"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleUpdateAllCosts}
+              disabled={isUpdatingCost}
+            >
+              {isUpdatingCost ? "Updating..." : "Update All"}
+            </Button>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleUpdateAllCosts}
-            disabled={isUpdatingCost}
-          >
-            {isUpdatingCost ? "Updating..." : "Update All"}
-          </Button>
+          <p className="text-xs text-muted-foreground mt-2">
+            Set how many requests each model uses from the daily quota (default: 1)
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          Set how many requests each model uses from the daily quota (default: 1)
-        </p>
+
+        <div>
+          <Label className="text-sm font-medium mb-2 block">Bulk Update Token Limit</Label>
+          <div className="flex gap-2 items-end flex-wrap">
+            <div className="flex-1 min-w-[100px]">
+              <Input
+                type="number"
+                min="1"
+                value={bulkTokenLimit}
+                onChange={(e) => setBulkTokenLimit(e.target.value)}
+                placeholder="No limit"
+                className="h-8"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleUpdateAllTokenLimits}
+              disabled={isUpdatingTokenLimit}
+            >
+              {isUpdatingTokenLimit ? "Updating..." : "Update All"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Leave blank to remove limits for the selected models
+          </p>
+        </div>
       </div>
       {models.map((model: any) => (
         <div
@@ -275,14 +379,61 @@ export function AdminModelList({ providerId, providerName, searchQuery = "" }: A
               ) : (
                 <>
                   <span className="text-xs text-muted-foreground">
-                    Cost: {model.requestCost || 1} req/use
+                    Cost: {model.requestCost ?? 1} req/use
                   </span>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => {
                       setEditingCost(model.id);
-                      setTempCost(String(model.requestCost || 1));
+                      setTempCost(String(model.requestCost ?? 1));
+                    }}
+                    className="h-6 px-2"
+                  >
+                    <Edit2 className="h-3 w-3" />
+                  </Button>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              {editingTokenLimit === model.id ? (
+                <>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={tempTokenLimit}
+                    onChange={(e) => setTempTokenLimit(e.target.value)}
+                    className="h-7 w-28 text-xs"
+                    autoFocus
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleUpdateModelTokenLimit(model.id, tempTokenLimit)}
+                    className="h-7 px-2"
+                  >
+                    <Save className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setEditingTokenLimit(null)}
+                    className="h-7 px-2"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    Token limit: {model.tokenLimit ?? "No limit"}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setEditingTokenLimit(model.id);
+                      setTempTokenLimit(model.tokenLimit === null || model.tokenLimit === undefined ? "" : String(model.tokenLimit));
                     }}
                     className="h-6 px-2"
                   >

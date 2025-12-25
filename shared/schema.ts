@@ -44,6 +44,7 @@ export interface Model {
   modelId: string;
   enabled: boolean;
   requestCost: number;
+  tokenLimit?: number | null;
 }
 
 export const insertModelSchema = z.object({
@@ -51,6 +52,7 @@ export const insertModelSchema = z.object({
   modelId: z.string().min(1),
   enabled: z.boolean().default(true),
   requestCost: z.number().int().positive().default(1),
+  tokenLimit: z.number().int().positive().nullable().optional(),
 });
 
 export type InsertModel = z.infer<typeof insertModelSchema>;

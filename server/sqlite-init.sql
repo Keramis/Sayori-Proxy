@@ -48,6 +48,7 @@ CREATE TABLE models (
     model_id TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     request_cost REAL NOT NULL DEFAULT 1.0,
+    token_limit INTEGER,
     FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
 );
 

@@ -52,3 +52,13 @@ export function getClientIP(req: Request): string {
   return req.ip || 'unknown';
 }
 
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+export function countInputTokens(messages: any[]): number {
+  if (!Array.isArray(messages)) return 0;
+  const messageText = JSON.stringify(messages);
+  return estimateTokens(messageText);
+}
+
