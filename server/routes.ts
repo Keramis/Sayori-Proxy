@@ -81,6 +81,28 @@ const chatCompletionsRateLimit = rateLimit({
     res.status(options.statusCode).send(options.message);
   }
 });
+const tokenStatsRateLimit = rateLimit({
+  windowMs: 1 * 1_000,
+  max: 4,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  }
+});
+const userManageRateLimit = rateLimit({
+  windowMs: 1 * 1_000,
+  max: 4,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  }
+});
 
 
 import session from "express-session";
@@ -270,11 +292,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // req.secure reflects the original HTTPS request and X-Forwarded-* works.
   app.set("trust proxy", 1);
 
+  const whitelist = ["http://localhost:5000", "https://sayori-proxy.com"];
+
   // Enable CORS
   app.use(cors({
-    origin: true, // Allow all origins but reflect request origin
+    // origin: true, // Allow all origins but reflect request origin
+    origin: function(origin, callback) {
+      if (!origin) return callback(null, true);
+
+      if (whitelist.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   }));
+
+  if (!process.env.SESSION_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SET A SESSION SECRET TO PREVENT COOKIE ATTACKS! THIS IS NON-NEGOTIABLE!');
+    } else {
+      console.log("WARNING: YOU HAVE NOT SET A SESSION SECRET IN THE ENV, " + 
+          "BUT THE APP STILL RUNS BECAUSE IT'S NONPRODUCTION MODE!");
+      console.log("WARNING: YOU HAVE NOT SET A SESSION SECRET IN THE ENV, " + 
+          "BUT THE APP STILL RUNS BECAUSE IT'S NONPRODUCTION MODE!");
+      console.log("WARNING: YOU HAVE NOT SET A SESSION SECRET IN THE ENV, " + 
+          "BUT THE APP STILL RUNS BECAUSE IT'S NONPRODUCTION MODE!");
+    }
+  }
 
   // Session configuration
   app.use(session({
@@ -282,7 +328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       db: 'sessions.sqlite',
       dir: './'
     }) as any,
-    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    secret: process.env.SESSION_SECRET || 'your-secret-here',
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -420,7 +466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User token stats
-  app.post("/api/token/stats", async (req: Request, res: Response) => {
+  app.post("/api/token/stats", tokenStatsRateLimit, async (req: Request, res: Response) => {
     const { token } = req.body;
     const userToken = await storage.getUserToken(token);
 
@@ -497,7 +543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User manage - comprehensive token details (requires token authentication)
-  app.post("/api/user/manage", async (req: Request, res: Response) => {
+  app.post("/api/user/manage", userManageRateLimit, async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -1563,14 +1609,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       providers.map(async (provider) => {
         const keys = await storage.getApiKeys(provider.id);
         const models = await storage.getModels(provider.id);
+        const owner = provider.ownerId ? providerAuthStorage.getProviderById(provider.ownerId) : undefined;
         return {
           ...provider,
           keysCount: keys.length,
           modelsCount: models.length,
+          ownerUsername: owner?.username,
         };
       })
     );
     res.json(providersWithCounts);
+  });
+
+  app.post("/api/admin/providers/:id/assign-owner", adminAuth, async (req: Request, res: Response) => {
+    const { username } = req.body;
+
+    if (!username) {
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+
+    const normalizedUsername = String(username).trim();
+    if (!normalizedUsername) {
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const account = providerAuthStorage.getProviderByUsername(normalizedUsername);
+    if (!account) {
+      return res.status(404).json({ error: "Provider account not found" });
+    }
+
+    const previousOwnerId = provider.ownerId;
+    const updatedProvider = await storage.updateProvider(req.params.id, { ownerId: account.id });
+    if (!updatedProvider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+
+    let deletedTokens = 0;
+    if (previousOwnerId !== account.id) {
+      const tokens = await storage.getUserTokens();
+      const tokensToDelete = tokens.filter((token) => {
+        const allowed = token.allowedProviders;
+        if (!allowed || allowed.length === 0) {
+          return true;
+        }
+        return allowed.includes(updatedProvider.id);
+      });
+
+      for (const token of tokensToDelete) {
+        const deleted = await storage.deleteUserToken(token.id);
+        if (deleted) {
+          deletedTokens++;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      deletedTokens,
+      provider: {
+        ...updatedProvider,
+        ownerUsername: account.username,
+      },
+    });
   });
 
   app.post("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {

@@ -19,6 +19,12 @@ export function Header() {
         </button>
         
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() => navigate("/provider")}
+          >
+            Provider Login
+          </Button>
           <ThemeToggle />
         </div>
       </div>

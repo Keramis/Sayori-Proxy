@@ -176,6 +176,21 @@ export const api = {
       return res.json();
     }),
 
+  assignProviderOwner: (id: string, username: string) =>
+    fetch(`/api/admin/providers/${id}/assign-owner`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to assign provider owner");
+      }
+      return res.json();
+    }),
+
   deleteProvider: (id: string) =>
     fetch(`/api/admin/providers/${id}`, {
       method: "DELETE",
