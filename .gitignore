@@ -12,3 +12,5 @@ database.sqlite
 database.sqlite-shm
 database.sqlite-wal
 sessions.sqlite
+providers.sqlite
+providers.db
