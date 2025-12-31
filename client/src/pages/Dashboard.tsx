@@ -82,6 +82,7 @@ export default function Dashboard() {
     let ws: WebSocket | null = null;
     let pollInterval: NodeJS.Timeout | null = null;
     let wsConnected = false;
+    let isUnmounted = false;
 
     // Try WebSocket first
     const tryWebSocket = () => {
@@ -105,9 +106,11 @@ export default function Dashboard() {
 
         ws.onclose = () => {
           console.log("WebSocket closed");
+          const wasConnected = wsConnected;
           wsConnected = false;
           // If WebSocket closes and wasn't connected, start polling
-          if (!wsConnected) {
+          // but only if we're not unmounting
+          if (!wasConnected && !isUnmounted) {
             console.log("Falling back to HTTP polling");
             startPolling();
           }
@@ -120,7 +123,7 @@ export default function Dashboard() {
 
     // HTTP polling fallback
     const startPolling = () => {
-      if (pollInterval) return; // Already polling
+      if (pollInterval || isUnmounted) return; // Already polling or unmounted
 
       const fetchStats = async () => {
         try {
@@ -142,13 +145,14 @@ export default function Dashboard() {
     // Try WebSocket first, with fallback to polling after 2 seconds if no connection
     tryWebSocket();
     const fallbackTimer = setTimeout(() => {
-      if (!wsConnected) {
+      if (!wsConnected && !isUnmounted) {
         console.log("WebSocket connection timeout, switching to HTTP polling");
         startPolling();
       }
     }, 2000);
 
     return () => {
+      isUnmounted = true;
       clearTimeout(fallbackTimer);
       if (ws) {
         ws.close();
