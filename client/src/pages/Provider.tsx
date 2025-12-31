@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Header } from "@/components/Header";
 import { ProviderProviderForm } from "@/components/ProviderProviderForm";
 import { ProviderProviderList } from "@/components/ProviderProviderList";
@@ -14,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 export default function Provider() {
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState("providers");
@@ -116,6 +118,14 @@ export default function Provider() {
                 data-testid="button-provider-login"
               >
                 {loading ? "Logging in..." : "Login"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full mt-2"
+                onClick={() => navigate("/")}
+              >
+                Back to Home
               </Button>
             </form>
           </CardContent>
