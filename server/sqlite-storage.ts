@@ -72,6 +72,8 @@ export class SQLiteStorage implements IStorage {
       }
 
       this.ensureModelTokenLimitColumn();
+      this.ensureProviderOwnerColumn();
+      this.ensureUserTokenCreatorColumn();
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -87,6 +89,24 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
+  private ensureProviderOwnerColumn(): void {
+    const columns = this.db.prepare("PRAGMA table_info(providers)").all() as { name: string }[];
+    if (columns.length === 0) return;
+    const hasOwnerId = columns.some((column) => column.name === "owner_id");
+    if (!hasOwnerId) {
+      this.db.exec("ALTER TABLE providers ADD COLUMN owner_id TEXT");
+    }
+  }
+
+  private ensureUserTokenCreatorColumn(): void {
+    const columns = this.db.prepare("PRAGMA table_info(user_tokens)").all() as { name: string }[];
+    if (columns.length === 0) return;
+    const hasCreator = columns.some((column) => column.name === "created_by_provider_id");
+    if (!hasCreator) {
+      this.db.exec("ALTER TABLE user_tokens ADD COLUMN created_by_provider_id TEXT");
+    }
+  }
+
   private rowToProvider(row: any): Provider {
     return {
       id: row.id,
@@ -96,6 +116,7 @@ export class SQLiteStorage implements IStorage {
       createdAt: row.created_at,
       customHeaders: row.custom_headers ? JSON.parse(row.custom_headers) : undefined,
       disableCacheDiscount: Boolean(row.disable_cache_discount),
+      ownerId: row.owner_id ?? undefined,
     };
   }
 
@@ -135,6 +156,7 @@ export class SQLiteStorage implements IStorage {
       disabled: !Boolean(row.enabled), // Convert enabled to disabled
       sigmaBoy: Boolean(row.sigma_boy),
       maxSubKeys: row.max_sub_keys,
+      createdByProviderId: row.created_by_provider_id ?? undefined,
     };
   }
 
@@ -181,8 +203,8 @@ export class SQLiteStorage implements IStorage {
       const now = Date.now();
 
       const stmt = this.db.prepare(`
-        INSERT INTO providers (id, name, base_url, enabled, created_at, custom_headers, disable_cache_discount)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO providers (id, name, base_url, enabled, created_at, custom_headers, disable_cache_discount, owner_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -192,7 +214,8 @@ export class SQLiteStorage implements IStorage {
         provider.enabled ? 1 : 0,
         now,
         provider.customHeaders ? JSON.stringify(provider.customHeaders) : null,
-        provider.disableCacheDiscount ? 1 : 0
+        provider.disableCacheDiscount ? 1 : 0,
+        provider.ownerId || null
       );
 
       const result = await this.getProvider(id);
@@ -233,6 +256,10 @@ export class SQLiteStorage implements IStorage {
       if (provider.disableCacheDiscount !== undefined) {
         updates.push('disable_cache_discount = ?');
         values.push(provider.disableCacheDiscount ? 1 : 0);
+      }
+      if (provider.ownerId !== undefined) {
+        updates.push('owner_id = ?');
+        values.push(provider.ownerId);
       }
 
       if (updates.length === 0) return existing;
@@ -721,8 +748,9 @@ export class SQLiteStorage implements IStorage {
       const stmt = this.db.prepare(`
         INSERT INTO user_tokens (
           id, name, token, max_rpd, max_rpm, created_at, allowed_providers,
-          parent_token_id, key_type, expires_at, enabled, sigma_boy, max_sub_keys
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          parent_token_id, key_type, expires_at, enabled, sigma_boy, max_sub_keys,
+          created_by_provider_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -738,7 +766,8 @@ export class SQLiteStorage implements IStorage {
         userToken.expiresAt || null,
         userToken.disabled ? 0 : 1,
         userToken.sigmaBoy ? 1 : 0,
-        userToken.maxSubKeys || 20
+        userToken.maxSubKeys || 20,
+        userToken.createdByProviderId || null
       );
 
       const result = await this.getUserTokenById(id);
@@ -796,6 +825,10 @@ export class SQLiteStorage implements IStorage {
       if (userToken.maxSubKeys !== undefined) {
         updates.push('max_sub_keys = ?');
         values.push(userToken.maxSubKeys);
+      }
+      if (userToken.createdByProviderId !== undefined) {
+        updates.push('created_by_provider_id = ?');
+        values.push(userToken.createdByProviderId);
       }
 
       if (updates.length === 0) {

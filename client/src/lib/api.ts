@@ -347,4 +347,241 @@ export const api = {
       }
       return res.json();
     }),
+
+  // Provider auth
+  providerLogin: (username: string, password: string) =>
+    fetch("/api/providers/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Login failed");
+      }
+      return res.json();
+    }),
+
+  checkProviderAuth: () =>
+    fetch("/api/providers/me").then(async (res) => {
+      if (!res.ok) throw new Error("Not authenticated");
+      return res.json();
+    }),
+
+  providerLogout: () =>
+    fetch("/api/providers/logout", {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Logout failed");
+      return res.json();
+    }),
+
+  // Provider - Providers
+  providerGetProviders: () =>
+    fetch("/api/providers").then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch providers");
+      return res.json();
+    }),
+
+  providerCreateProvider: (data: any) =>
+    fetch("/api/providers", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create provider");
+      }
+      return res.json();
+    }),
+
+  providerUpdateProvider: (id: string, data: any) =>
+    fetch(`/api/providers/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update provider");
+      }
+      return res.json();
+    }),
+
+  providerDeleteProvider: (id: string) =>
+    fetch(`/api/providers/${id}`, {
+      method: "DELETE",
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to delete provider");
+      return res.json();
+    }),
+
+  // Provider - API Keys
+  providerGetProviderKeys: (providerId: string) =>
+    fetch(`/api/providers/${providerId}/keys`).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch provider keys");
+      return res.json();
+    }),
+
+  providerAddProviderKey: (providerId: string, key: string) =>
+    fetch(`/api/providers/${providerId}/keys`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ key }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to add provider key");
+      }
+      return res.json();
+    }),
+
+  providerDeleteKey: (keyId: string) =>
+    fetch(`/api/providers/keys/${keyId}`, {
+      method: "DELETE",
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to delete API key");
+      return res.json();
+    }),
+
+  providerUpdateApiKey: (keyId: string, key: string) =>
+    fetch(`/api/providers/keys/${keyId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ key }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update API key");
+      }
+      return res.json();
+    }),
+
+  // Provider - Models
+  providerCheckProviderModels: (providerId: string) =>
+    fetch(`/api/providers/${providerId}/check-models`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to check models");
+      }
+      return res.json();
+    }),
+
+  providerGetProviderModels: (providerId: string) =>
+    fetch(`/api/providers/${providerId}/models`).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch provider models");
+      return res.json();
+    }),
+
+  providerUpdateModel: (modelId: string, data: any) =>
+    fetch(`/api/providers/models/${modelId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update model");
+      }
+      return res.json();
+    }),
+
+  providerBulkUpdateModels: (providerId: string, updates: Array<{ id: string; enabled?: boolean; requestCost?: number; tokenLimit?: number | null }>) =>
+    fetch(`/api/providers/${providerId}/models/bulk`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ updates }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to bulk update models");
+      }
+      return res.json();
+    }),
+
+  async providerUpdateAllModelsCost(providerId: string, requestCost: number) {
+    const response = await fetch(`/api/providers/${providerId}/models/update-cost-all`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ requestCost }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Failed to update model costs");
+    }
+    return response.json();
+  },
+
+  // Provider - User Tokens
+  providerGetUserTokens: () =>
+    fetch("/api/providers/tokens").then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch user tokens");
+      return res.json();
+    }),
+
+  providerCreateUserToken: (data: any) =>
+    fetch("/api/providers/tokens", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create user token");
+      }
+      return res.json();
+    }),
+
+  providerUpdateUserToken: (tokenId: string, data: any) =>
+    fetch(`/api/providers/tokens/${tokenId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update user token");
+      }
+      return res.json();
+    }),
+
+  providerDeleteUserToken: (tokenId: string) =>
+    fetch(`/api/providers/tokens/${tokenId}`, {
+      method: "DELETE",
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to delete user token");
+      return res.json();
+    }),
+
+  providerRegenerateUserToken: (tokenId: string) =>
+    fetch(`/api/providers/tokens/${tokenId}/regenerate`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to regenerate user token");
+      }
+      return res.json();
+    }),
 };

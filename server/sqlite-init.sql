@@ -30,7 +30,8 @@ CREATE TABLE providers (
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL, -- unix
     custom_headers TEXT,
-    disable_cache_discount INTEGER DEFAULT 0
+    disable_cache_discount INTEGER DEFAULT 0,
+    owner_id TEXT
 );
 
 CREATE TABLE api_keys (
@@ -67,6 +68,7 @@ CREATE TABLE user_tokens (
     sigma_boy INTEGER DEFAULT 0,
     max_sub_keys INTEGER DEFAULT 20,
     deleted_at INTEGER,
+    created_by_provider_id TEXT,
     FOREIGN KEY (parent_token_id) REFERENCES user_tokens(id) ON DELETE CASCADE
 );
 
@@ -102,6 +104,7 @@ CREATE TABLE system_config (
 -- index hoolahoops for PERFORMANCE BABYYYY
 CREATE INDEX idx_providers_enabled ON providers(enabled);
 CREATE INDEX idx_providers_name ON providers(name);
+CREATE INDEX idx_providers_owner_id ON providers(owner_id);
 
 CREATE INDEX idx_api_keys_provider_id ON api_keys(provider_id);
 CREATE INDEX idx_api_keys_last_used ON api_keys(last_used);
@@ -118,6 +121,7 @@ CREATE INDEX idx_user_tokens_key_type ON user_tokens(key_type);
 CREATE INDEX idx_user_tokens_enabled ON user_tokens(enabled);
 CREATE INDEX idx_user_tokens_expires_at ON user_tokens(expires_at);
 CREATE INDEX idx_user_tokens_sigma_boy ON user_tokens(sigma_boy);
+CREATE INDEX idx_user_tokens_created_by_provider_id ON user_tokens(created_by_provider_id);
 
 CREATE INDEX idx_usage_records_user_token_id ON usage_records(user_token_id);
 CREATE INDEX idx_usage_records_timestamp ON usage_records(timestamp);

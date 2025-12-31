@@ -9,6 +9,7 @@ export interface Provider {
   createdAt: number;
   customHeaders?: Record<string, string>;
   disableCacheDiscount?: boolean;
+  ownerId?: string;
 }
 
 export const insertProviderSchema = z.object({
@@ -17,6 +18,7 @@ export const insertProviderSchema = z.object({
   enabled: z.boolean().default(true),
   customHeaders: z.record(z.string()).optional(),
   disableCacheDiscount: z.boolean().default(false).optional(),
+  ownerId: z.string().optional(),
 });
 
 export type InsertProvider = z.infer<typeof insertProviderSchema>;
@@ -72,6 +74,7 @@ export interface UserToken {
   disabled?: boolean; // If true, the key is disabled (default: false)
   sigmaBoy?: boolean; // If true, allows creating sub-keys (default: false for "regular" tier)
   maxSubKeys?: number; // Maximum number of sub-keys that can be created (default: 20 for Sigma Boy)
+  createdByProviderId?: string;
 }
 
 export const insertUserTokenSchema = z.object({
@@ -85,6 +88,7 @@ export const insertUserTokenSchema = z.object({
   disabled: z.boolean().optional(),
   sigmaBoy: z.boolean().optional(),
   maxSubKeys: z.number().int().min(2).optional(),
+  createdByProviderId: z.string().optional(),
 });
 
 export type InsertUserToken = z.infer<typeof insertUserTokenSchema>;
