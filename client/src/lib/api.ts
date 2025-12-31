@@ -348,6 +348,54 @@ export const api = {
       return res.json();
     }),
 
+  // Admin - Provider Accounts
+  getProviderAccounts: () =>
+    fetch("/api/admin/provider-accounts").then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch provider accounts");
+      return res.json();
+    }),
+
+  createProviderAccount: (data: { username: string; password: string }) =>
+    fetch("/api/admin/provider-accounts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create provider account");
+      }
+      return res.json();
+    }),
+
+  updateProviderAccount: (accountId: string, data: { username?: string; password?: string; clearSession?: boolean }) =>
+    fetch(`/api/admin/provider-accounts/${accountId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update provider account");
+      }
+      return res.json();
+    }),
+
+  deleteProviderAccount: (accountId: string) =>
+    fetch(`/api/admin/provider-accounts/${accountId}`, {
+      method: "DELETE",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete provider account");
+      }
+      return res.json();
+    }),
+
   // Provider auth
   providerLogin: (username: string, password: string) =>
     fetch("/api/providers/login", {

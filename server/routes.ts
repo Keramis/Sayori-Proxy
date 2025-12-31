@@ -1444,6 +1444,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Admin routes (protected)
 
+  // Provider accounts
+  app.get("/api/admin/provider-accounts", adminAuth, async (req: Request, res: Response) => {
+    const accounts = providerAuthStorage.getProviderAccounts().map((account) => ({
+      id: account.id,
+      username: account.username,
+      createdAt: account.createdAt,
+      hasSession: Boolean(account.sessionToken),
+    }));
+    res.json(accounts);
+  });
+
+  app.post("/api/admin/provider-accounts", adminAuth, async (req: Request, res: Response) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+
+    try {
+      const normalizedUsername = String(username).trim();
+      if (!normalizedUsername) {
+        return res.status(400).json({ error: "Username is required" });
+      }
+
+      const existing = providerAuthStorage.getProviderByUsername(normalizedUsername);
+      if (existing) {
+        return res.status(400).json({ error: "A provider account with this username already exists" });
+      }
+
+      const hashedPassword = await bcrypt.hash(String(password), 10);
+      const account = providerAuthStorage.createProviderAccount(normalizedUsername, hashedPassword);
+      res.json({
+        id: account.id,
+        username: account.username,
+        createdAt: account.createdAt,
+        hasSession: Boolean(account.sessionToken),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/admin/provider-accounts/:id", adminAuth, async (req: Request, res: Response) => {
+    const { username, password, clearSession } = req.body;
+
+    try {
+      const existing = providerAuthStorage.getProviderById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Provider account not found" });
+      }
+
+      let updatedUsername: string | undefined;
+      if (username !== undefined) {
+        const normalizedUsername = String(username).trim();
+        if (!normalizedUsername) {
+          return res.status(400).json({ error: "Username is required" });
+        }
+        if (normalizedUsername !== existing.username) {
+          const conflict = providerAuthStorage.getProviderByUsername(normalizedUsername);
+          if (conflict && conflict.id !== existing.id) {
+            return res.status(400).json({ error: "A provider account with this username already exists" });
+          }
+        }
+        updatedUsername = normalizedUsername;
+      }
+
+      let passwordHash: string | undefined;
+      if (password !== undefined) {
+        const normalizedPassword = String(password);
+        if (!normalizedPassword) {
+          return res.status(400).json({ error: "Password is required" });
+        }
+        passwordHash = await bcrypt.hash(normalizedPassword, 10);
+      }
+
+      const updated = providerAuthStorage.updateProviderAccount(req.params.id, {
+        username: updatedUsername,
+        passwordHash,
+        clearSession: Boolean(clearSession),
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "Provider account not found" });
+      }
+
+      res.json({
+        id: updated.id,
+        username: updated.username,
+        createdAt: updated.createdAt,
+        hasSession: Boolean(updated.sessionToken),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/provider-accounts/:id", adminAuth, async (req: Request, res: Response) => {
+    const existing = providerAuthStorage.getProviderById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: "Provider account not found" });
+    }
+
+    const providers = await storage.getProviders();
+    const ownsProviders = providers.some((provider) => provider.ownerId === existing.id);
+    if (ownsProviders) {
+      return res.status(400).json({ error: "Cannot delete account that owns providers" });
+    }
+
+    const success = providerAuthStorage.deleteProviderAccount(req.params.id);
+    res.json({ success });
+  });
+
   // Providers
   app.get("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
     const providers = await storage.getProviders();

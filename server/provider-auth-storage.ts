@@ -59,6 +59,11 @@ export class ProviderAuthStorage {
     return row ? this.rowToProvider(row) : undefined;
   }
 
+  getProviderAccounts(): ProviderAccount[] {
+    const rows = this.db.prepare("SELECT * FROM provider_accounts ORDER BY created_at DESC").all();
+    return rows.map((row) => this.rowToProvider(row));
+  }
+
   createProviderAccount(username: string, passwordHash: string): ProviderAccount {
     const id = randomUUID();
     const createdAt = Date.now();
@@ -73,6 +78,37 @@ export class ProviderAuthStorage {
       password: passwordHash,
       createdAt,
     };
+  }
+
+  updateProviderAccount(id: string, updates: { username?: string; passwordHash?: string; clearSession?: boolean }): ProviderAccount | undefined {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.username !== undefined) {
+      fields.push("username = ?");
+      values.push(updates.username);
+    }
+    if (updates.passwordHash !== undefined) {
+      fields.push("password = ?");
+      values.push(updates.passwordHash);
+    }
+    if (updates.clearSession) {
+      fields.push("session_token = NULL");
+    }
+
+    if (fields.length === 0) {
+      return this.getProviderById(id);
+    }
+
+    const stmt = this.db.prepare(`UPDATE provider_accounts SET ${fields.join(", ")} WHERE id = ?`);
+    stmt.run(...values, id);
+    return this.getProviderById(id);
+  }
+
+  deleteProviderAccount(id: string): boolean {
+    const stmt = this.db.prepare("DELETE FROM provider_accounts WHERE id = ?");
+    const result = stmt.run(id);
+    return result.changes > 0;
   }
 
   setProviderSession(id: string, sessionToken: string): void {
