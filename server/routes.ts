@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import cors from "cors";
 import { storage } from "./storage";
+import { providerAuthStorage } from "./provider-auth-storage";
 import {
   insertProviderSchema,
   insertApiKeySchema,
@@ -28,6 +29,17 @@ const adminLoginRateLimit = rateLimit({
 const adminApiRateLimit = rateLimit({
   windowMs: 60 * 1_000,
   max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  },
+});
+const providerLoginRateLimit = rateLimit({
+  windowMs: 60 * 1_000, //1min
+  limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many requests!",
@@ -69,6 +81,28 @@ const chatCompletionsRateLimit = rateLimit({
     res.status(options.statusCode).send(options.message);
   }
 });
+const tokenStatsRateLimit = rateLimit({
+  windowMs: 1 * 1_000,
+  max: 4,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  }
+});
+const userManageRateLimit = rateLimit({
+  windowMs: 1 * 1_000,
+  max: 4,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  }
+});
 
 
 import session from "express-session";
@@ -83,6 +117,34 @@ function adminAuth(req: Request, res: Response, next: Function) {
     return next();
   }
   res.status(401).json({ error: "Unauthorized" });
+}
+
+const PROVIDER_SESSION_COOKIE = "provider.sid";
+
+function parseCookieHeader(header?: string): Record<string, string> {
+  if (!header) return {};
+  return header.split(";").reduce((acc, part) => {
+    const [key, ...valueParts] = part.trim().split("=");
+    if (!key) return acc;
+    acc[key] = decodeURIComponent(valueParts.join("="));
+    return acc;
+  }, {} as Record<string, string>);
+}
+
+function providerAuth(req: Request, res: Response, next: Function) {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const sessionToken = cookies[PROVIDER_SESSION_COOKIE];
+  if (!sessionToken) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const providerAccount = providerAuthStorage.getProviderBySessionToken(sessionToken);
+  if (!providerAccount) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  (req as any).providerAccount = providerAccount;
+  next();
 }
 
 // Middleware for user token authentication
@@ -142,8 +204,24 @@ async function flexibleAuth(req: Request, res: Response, next: Function) {
   return userTokenAuth(req, res, next);
 }
 
+async function resolveTokenAllowedProviders(userToken: any): Promise<string[]> {
+  if (userToken.allowedProviders && userToken.allowedProviders.length > 0) {
+    return userToken.allowedProviders;
+  }
+
+  if (userToken.createdByProviderId) {
+    const providers = await storage.getProviders();
+    return providers
+      .filter((provider) => provider.ownerId === userToken.createdByProviderId)
+      .map((provider) => provider.id);
+  }
+
+  return [];
+}
+
 // Shared helper to fetch models for a provider and persist them
 const MODEL_SYNC_TIMEOUT_MS = 10_000;
+const PROVIDER_MAX_RPM = 500;
 
 async function syncProviderModels(providerId: string) {
   const provider = await storage.getProvider(providerId);
@@ -214,11 +292,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // req.secure reflects the original HTTPS request and X-Forwarded-* works.
   app.set("trust proxy", 1);
 
+  const port = process.env.PORT || '5000';
+  const whitelist = [`http://localhost:${port}`, `http://127.0.0.1:${port}`, "https://sayori-proxy.com"];
+
   // Enable CORS
   app.use(cors({
-    origin: true, // Allow all origins but reflect request origin
+    // origin: true, // Allow all origins but reflect request origin
+    origin: function(origin, callback) {
+      if (!origin) return callback(null, true);
+
+      if (whitelist.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   }));
+
+  if (!process.env.SESSION_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SET A SESSION SECRET TO PREVENT COOKIE ATTACKS! THIS IS NON-NEGOTIABLE!');
+    } else {
+      console.log("WARNING: YOU HAVE NOT SET A SESSION SECRET IN THE ENV, " + 
+          "BUT THE APP STILL RUNS BECAUSE IT'S NONPRODUCTION MODE!");
+      console.log("WARNING: YOU HAVE NOT SET A SESSION SECRET IN THE ENV, " + 
+          "BUT THE APP STILL RUNS BECAUSE IT'S NONPRODUCTION MODE!");
+      console.log("WARNING: YOU HAVE NOT SET A SESSION SECRET IN THE ENV, " + 
+          "BUT THE APP STILL RUNS BECAUSE IT'S NONPRODUCTION MODE!");
+    }
+  }
 
   // Session configuration
   app.use(session({
@@ -226,7 +329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       db: 'sessions.sqlite',
       dir: './'
     }) as any,
-    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    secret: process.env.SESSION_SECRET || 'your-secret-here',
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -293,6 +396,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Provider auth
+  app.get("/api/providers/me", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    res.json({ authenticated: true, username: providerAccount.username });
+  });
+
+  app.post("/api/providers/login", providerLoginRateLimit, async (req: Request, res: Response) => {
+    const { username, password } = req.body;
+
+    try {
+      const providerAccount = providerAuthStorage.getProviderByUsername(username);
+      if (!providerAccount) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const isValid = await bcrypt.compare(password, providerAccount.password);
+      if (!isValid) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const sessionToken = randomUUID();
+      providerAuthStorage.setProviderSession(providerAccount.id, sessionToken);
+
+      res.cookie(PROVIDER_SESSION_COOKIE, sessionToken, {
+        secure: process.env.NODE_ENV === "production",
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Provider login error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/providers/logout", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    providerAuthStorage.clearProviderSession(providerAccount.id);
+    res.clearCookie(PROVIDER_SESSION_COOKIE);
+    res.json({ success: true });
+  });
+
   // Get stats (public)
   app.get("/api/stats", async (req: Request, res: Response) => {
     const stats = await storage.getStats();
@@ -320,7 +467,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User token stats
-  app.post("/api/token/stats", async (req: Request, res: Response) => {
+  app.post("/api/token/stats", tokenStatsRateLimit, async (req: Request, res: Response) => {
     const { token } = req.body;
     const userToken = await storage.getUserToken(token);
 
@@ -397,7 +544,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User manage - comprehensive token details (requires token authentication)
-  app.post("/api/user/manage", async (req: Request, res: Response) => {
+  app.post("/api/user/manage", userManageRateLimit, async (req: Request, res: Response) => {
     const { token } = req.body;
 
     if (!token) {
@@ -511,7 +658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Get allowed providers
-      const allowedProviders = userToken.allowedProviders || [];
+      const allowedProviders = await resolveTokenAllowedProviders(userToken);
       const allowedProviderNames = allowedProviders
         .map(id => providerMap[id])
         .filter(Boolean);
@@ -557,7 +704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           keyType: userToken.keyType,
           parentTokenId: userToken.parentTokenId,
           allowedProviders: allowedProviderNames,
-          allowedProviderIds: userToken.allowedProviders || [],
+          allowedProviderIds: allowedProviders,
         },
         // Current usage
         usage: {
@@ -758,11 +905,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin routes (protected)
-
-  // Providers
-  app.get("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
+  const getOwnedProviders = async (providerAccountId: string) => {
     const providers = await storage.getProviders();
+    return providers.filter((provider) => provider.ownerId === providerAccountId);
+  };
+
+  const getOwnedProviderIds = async (providerAccountId: string) => {
+    const ownedProviders = await getOwnedProviders(providerAccountId);
+    return ownedProviders.map((provider) => provider.id);
+  };
+
+  const findOwnedApiKey = async (providerAccountId: string, keyId: string) => {
+    const ownedProviders = await getOwnedProviders(providerAccountId);
+    for (const provider of ownedProviders) {
+      const keys = await storage.getApiKeys(provider.id);
+      const match = keys.find((key) => key.id === keyId);
+      if (match) {
+        return { provider, key: match };
+      }
+    }
+    return null;
+  };
+
+  const findOwnedModel = async (providerAccountId: string, modelId: string) => {
+    const ownedProviders = await getOwnedProviders(providerAccountId);
+    for (const provider of ownedProviders) {
+      const models = await storage.getModels(provider.id);
+      const match = models.find((model) => model.id === modelId);
+      if (match) {
+        return { provider, model: match };
+      }
+    }
+    return null;
+  };
+
+  // Provider routes (protected)
+  app.get("/api/providers", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const providers = await getOwnedProviders(providerAccount.id);
     const providersWithCounts = await Promise.all(
       providers.map(async (provider) => {
         const keys = await storage.getApiKeys(provider.id);
@@ -775,6 +955,728 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
     );
     res.json(providersWithCounts);
+  });
+
+  app.post("/api/providers", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    try {
+      const data = insertProviderSchema.parse(req.body);
+
+      const existingProviders = await storage.getProviders();
+      if (existingProviders.some(p => p.name.toLowerCase() === data.name.toLowerCase())) {
+        return res.status(400).json({ error: "A provider with this name already exists" });
+      }
+
+      const provider = await storage.createProvider({ ...data, ownerId: providerAccount.id });
+      res.json(provider);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/providers/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    try {
+      const existingProvider = await storage.getProvider(req.params.id);
+      if (!existingProvider) {
+        return res.status(404).json({ error: "Provider not found" });
+      }
+      if (existingProvider.ownerId !== providerAccount.id) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      if (req.body.name) {
+        const existingProviders = await storage.getProviders();
+        if (existingProviders.some(p => p.id !== req.params.id && p.name.toLowerCase() === req.body.name.toLowerCase())) {
+          return res.status(400).json({ error: "A provider with this name already exists" });
+        }
+      }
+
+      const { name, baseUrl, enabled, customHeaders, disableCacheDiscount } = req.body;
+      const provider = await storage.updateProvider(req.params.id, {
+        name,
+        baseUrl,
+        enabled,
+        customHeaders,
+        disableCacheDiscount,
+      });
+      if (!provider) {
+        return res.status(404).json({ error: "Provider not found" });
+      }
+      res.json(provider);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/providers/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+    if (provider.ownerId !== providerAccount.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    const success = await storage.deleteProvider(req.params.id);
+    res.json({ success });
+  });
+
+  // Provider API Keys
+  app.get("/api/providers/:id/keys", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+    if (provider.ownerId !== providerAccount.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    const keys = await storage.getApiKeys(req.params.id);
+    res.json(keys);
+  });
+
+  app.post("/api/providers/:id/keys", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+    if (provider.ownerId !== providerAccount.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    try {
+      const data = insertApiKeySchema.parse({
+        ...req.body,
+        providerId: req.params.id,
+      });
+      const key = await storage.createApiKey(data);
+
+      let modelSync: { success: boolean; count?: number; error?: string } | undefined;
+      try {
+        const result = await syncProviderModels(req.params.id);
+        modelSync = { success: true, count: result.count };
+      } catch (syncError: any) {
+        console.error("Auto model sync failed after adding key:", syncError);
+        modelSync = { success: false, error: syncError.message };
+      }
+
+      res.json({ ...key, modelSync });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/providers/keys/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const ownedKey = await findOwnedApiKey(providerAccount.id, req.params.id);
+    if (!ownedKey) {
+      return res.status(404).json({ error: "API key not found" });
+    }
+    const success = await storage.deleteApiKey(req.params.id);
+    res.json({ success });
+  });
+
+  app.patch("/api/providers/keys/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const { key } = req.body;
+    if (!key) {
+      return res.status(400).json({ error: "Key is required" });
+    }
+    const ownedKey = await findOwnedApiKey(providerAccount.id, req.params.id);
+    if (!ownedKey) {
+      return res.status(404).json({ error: "API key not found" });
+    }
+    const apiKey = await storage.updateApiKey(req.params.id, key);
+    if (!apiKey) {
+      return res.status(404).json({ error: "API key not found" });
+    }
+    res.json(apiKey);
+  });
+
+  // Provider Models
+  app.get("/api/providers/:id/models", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+    if (provider.ownerId !== providerAccount.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    const models = await storage.getModels(req.params.id);
+    res.json(models);
+  });
+
+  app.post("/api/providers/:id/check-models", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+    if (provider.ownerId !== providerAccount.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    try {
+      const result = await syncProviderModels(req.params.id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Check models error:", error);
+      if (error.message === "No API keys configured") {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/providers/models/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const ownedModel = await findOwnedModel(providerAccount.id, req.params.id);
+    if (!ownedModel) {
+      return res.status(404).json({ error: "Model not found" });
+    }
+    const model = await storage.updateModel(req.params.id, req.body);
+    if (!model) {
+      return res.status(404).json({ error: "Model not found" });
+    }
+    res.json(model);
+  });
+
+  app.delete("/api/providers/models/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const ownedModel = await findOwnedModel(providerAccount.id, req.params.id);
+    if (!ownedModel) {
+      return res.status(404).json({ error: "Model not found" });
+    }
+    const success = await storage.deleteModel(req.params.id);
+    res.json({ success });
+  });
+
+  app.post("/api/providers/:id/models/update-cost-all", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+    if (provider.ownerId !== providerAccount.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    try {
+      const { requestCost } = req.body;
+      if (!requestCost || requestCost < 1) {
+        return res.status(400).json({ error: "Invalid request cost" });
+      }
+      const models = await storage.updateCostAllModelsByProvider(req.params.id, parseInt(requestCost));
+      res.json({ success: true, count: models.length });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/providers/:id/models/bulk", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+    if (provider.ownerId !== providerAccount.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    try {
+      const { updates } = req.body;
+
+      if (!updates || !Array.isArray(updates)) {
+        return res.status(400).json({ error: "Updates array is required" });
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: "Updates array cannot be empty" });
+      }
+
+      for (const update of updates) {
+        if (!update.id || typeof update.id !== "string") {
+          return res.status(400).json({ error: "Each update must have a valid 'id' field" });
+        }
+
+        let hasUpdateField = false;
+
+        if (update.enabled !== undefined) {
+          if (typeof update.enabled !== "boolean") {
+            return res.status(400).json({ error: "Each update must have a valid 'enabled' field" });
+          }
+          hasUpdateField = true;
+        }
+
+        if (update.requestCost !== undefined) {
+          if (typeof update.requestCost !== "number" || update.requestCost < 1) {
+            return res.status(400).json({ error: "Each update must have a valid 'requestCost' field" });
+          }
+          hasUpdateField = true;
+        }
+
+        if (update.tokenLimit !== undefined) {
+          if (update.tokenLimit !== null && (typeof update.tokenLimit !== "number" || update.tokenLimit < 1)) {
+            return res.status(400).json({ error: "Each update must have a valid 'tokenLimit' field" });
+          }
+          hasUpdateField = true;
+        }
+
+        if (!hasUpdateField) {
+          return res.status(400).json({ error: "Each update must include at least one field to update" });
+        }
+      }
+
+      const providerModels = await storage.getModels(req.params.id);
+      const providerModelIds = new Set(providerModels.map((model) => model.id));
+      const invalidModelIds = updates.filter((update) => !providerModelIds.has(update.id));
+      if (invalidModelIds.length > 0) {
+        return res.status(403).json({ error: "One or more models are not owned by this provider" });
+      }
+
+      const updatedModels = await storage.bulkUpdateModelsByIds(updates);
+      const allModels = await storage.getModels(req.params.id);
+
+      res.json({
+        success: true,
+        updated: updatedModels.length,
+        models: allModels,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Provider user tokens
+  app.get("/api/providers/tokens", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const tokens = await storage.getUserTokens();
+    const ownedTokens = tokens.filter((token) => token.createdByProviderId === providerAccount.id);
+    const tokensWithUsage = await Promise.all(
+      ownedTokens.map(async (token) => {
+        const todayUsage = await storage.getTodayUsageCount(token.id);
+        return {
+          ...token,
+          usedRPD: todayUsage,
+        };
+      })
+    );
+    res.json(tokensWithUsage);
+  });
+
+  app.post("/api/providers/tokens", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    try {
+      const data = insertUserTokenSchema.parse(req.body);
+      if (data.maxRPM > PROVIDER_MAX_RPM) {
+        return res.status(400).json({ error: `Max RPM cannot exceed ${PROVIDER_MAX_RPM}` });
+      }
+
+      const ownedProviderIds = await getOwnedProviderIds(providerAccount.id);
+      if (ownedProviderIds.length === 0) {
+        return res.status(400).json({ error: "No providers available for this account" });
+      }
+
+      let allowedProviders = data.allowedProviders;
+      if (allowedProviders && allowedProviders.length > 0) {
+        const invalid = allowedProviders.filter((id) => !ownedProviderIds.includes(id));
+        if (invalid.length > 0) {
+          return res.status(400).json({ error: "Invalid provider access requested" });
+        }
+      } else {
+        allowedProviders = ownedProviderIds;
+      }
+
+      const token = await storage.createUserToken({
+        ...data,
+        keyType: "master",
+        allowedProviders,
+        createdByProviderId: providerAccount.id,
+      });
+      res.json(token);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/providers/tokens/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    try {
+      const token = await storage.getUserTokenById(req.params.id);
+      if (!token || token.createdByProviderId !== providerAccount.id) {
+        return res.status(404).json({ error: "Token not found" });
+      }
+
+      if (req.body.maxRPM !== undefined && req.body.maxRPM > PROVIDER_MAX_RPM) {
+        return res.status(400).json({ error: `Max RPM cannot exceed ${PROVIDER_MAX_RPM}` });
+      }
+
+      let resolvedAllowedProviders = req.body.allowedProviders;
+      if (resolvedAllowedProviders !== undefined) {
+        const ownedProviderIds = await getOwnedProviderIds(providerAccount.id);
+        if (!Array.isArray(resolvedAllowedProviders) || resolvedAllowedProviders.length === 0) {
+          resolvedAllowedProviders = ownedProviderIds;
+        } else {
+          const invalid = resolvedAllowedProviders.filter((id: string) => !ownedProviderIds.includes(id));
+          if (invalid.length > 0) {
+            return res.status(400).json({ error: "Invalid provider access requested" });
+          }
+        }
+      }
+
+      const updateData = {
+        name: req.body.name,
+        maxRPD: req.body.maxRPD,
+        maxRPM: req.body.maxRPM,
+        allowedProviders: resolvedAllowedProviders,
+        expiresAt: req.body.expiresAt,
+        disabled: req.body.disabled,
+        sigmaBoy: req.body.sigmaBoy,
+        maxSubKeys: req.body.maxSubKeys,
+      };
+
+      const updatedToken = await storage.updateUserToken(req.params.id, updateData);
+      if (!updatedToken) {
+        return res.status(404).json({ error: "Token not found" });
+      }
+      res.json(updatedToken);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/providers/tokens/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const token = await storage.getUserTokenById(req.params.id);
+    if (!token || token.createdByProviderId !== providerAccount.id) {
+      return res.status(404).json({ error: "Token not found" });
+    }
+    const success = await storage.deleteUserToken(req.params.id);
+    res.json({ success });
+  });
+
+  app.post("/api/providers/tokens/:id/regenerate", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const token = await storage.getUserTokenById(req.params.id);
+    if (!token || token.createdByProviderId !== providerAccount.id) {
+      return res.status(404).json({ error: "Token not found" });
+    }
+
+    try {
+      const updatedToken = await storage.regenerateUserToken(req.params.id);
+      if (!updatedToken) {
+        return res.status(404).json({ error: "Token not found" });
+      }
+      res.json(updatedToken);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/providers/tokens/:id/sub-keys", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const { name, maxRPD, maxRPM, allowedProviders, expiresAt } = req.body;
+
+    if (!name || (!(checkStringValidity(name).valid)) || name.length > 50) {
+      return res.status(400).json({ error: "Name has to be valid and below 50 characters!" });
+    }
+
+    const parentToken = await storage.getUserTokenById(req.params.id);
+    if (!parentToken || parentToken.createdByProviderId !== providerAccount.id) {
+      return res.status(404).json({ error: "Parent token not found" });
+    }
+
+    const numericRPD = typeof maxRPD === "string" ? parseFloat(maxRPD) : maxRPD;
+    const numericRPM = typeof maxRPM === "string" ? parseFloat(maxRPM) : maxRPM;
+
+    if (numericRPM > PROVIDER_MAX_RPM) {
+      return res.status(400).json({ error: `Max RPM cannot exceed ${PROVIDER_MAX_RPM}` });
+    }
+
+    const validation = await storage.canCreateSubKey(parentToken.id, numericRPD, numericRPM);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.reason });
+    }
+
+    if (expiresAt && expiresAt <= Date.now()) {
+      return res.status(400).json({ error: "Expiration date must be in the future" });
+    }
+
+    let parentAllowed = parentToken.allowedProviders || [];
+    if (parentAllowed.length === 0) {
+      parentAllowed = await getOwnedProviderIds(providerAccount.id);
+    }
+    let resolvedAllowed = allowedProviders;
+    if (resolvedAllowed && resolvedAllowed.length > 0) {
+      const invalid = resolvedAllowed.filter((id: string) => !parentAllowed.includes(id));
+      if (invalid.length > 0) {
+        return res.status(400).json({ error: "Invalid provider access requested" });
+      }
+    } else {
+      resolvedAllowed = parentAllowed;
+    }
+
+    try {
+      const subKey = await storage.createUserToken({
+        name,
+        maxRPD: numericRPD,
+        maxRPM: numericRPM,
+        allowedProviders: resolvedAllowed,
+        parentTokenId: parentToken.id,
+        keyType: "sub",
+        expiresAt,
+        createdByProviderId: providerAccount.id,
+      });
+
+      res.json(subKey);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/providers/sub-keys/:id", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const subKey = await storage.getUserTokenById(req.params.id);
+    if (!subKey || subKey.createdByProviderId !== providerAccount.id) {
+      return res.status(404).json({ error: "Sub-key not found" });
+    }
+
+    try {
+      const deletedCount = await storage.cascadeDeleteSubKeys(subKey.id);
+      await storage.deleteUserToken(subKey.id);
+      res.json({ success: true, deletedCount: deletedCount + 1 });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/providers/sub-keys/:id/disable", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const subKey = await storage.getUserTokenById(req.params.id);
+    if (!subKey || subKey.createdByProviderId !== providerAccount.id) {
+      return res.status(404).json({ error: "Sub-key not found" });
+    }
+
+    try {
+      await storage.updateUserToken(subKey.id, { disabled: true });
+      const disabledCount = await storage.cascadeDisableSubKeys(subKey.id);
+      res.json({ success: true, disabledCount: disabledCount + 1 });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/providers/sub-keys/:id/enable", providerAuth, async (req: Request, res: Response) => {
+    const providerAccount = (req as any).providerAccount;
+    const subKey = await storage.getUserTokenById(req.params.id);
+    if (!subKey || subKey.createdByProviderId !== providerAccount.id) {
+      return res.status(404).json({ error: "Sub-key not found" });
+    }
+
+    if (subKey.expiresAt && subKey.expiresAt <= Date.now()) {
+      return res.status(400).json({ error: "Cannot enable expired sub-key. Please update expiration date first." });
+    }
+
+    try {
+      await storage.updateUserToken(subKey.id, { disabled: false });
+      const enabledCount = await storage.cascadeEnableSubKeys(subKey.id);
+      res.json({ success: true, enabledCount: enabledCount + 1 });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Admin routes (protected)
+
+  // Provider accounts
+  app.get("/api/admin/provider-accounts", adminAuth, async (req: Request, res: Response) => {
+    const accounts = providerAuthStorage.getProviderAccounts().map((account) => ({
+      id: account.id,
+      username: account.username,
+      createdAt: account.createdAt,
+      hasSession: Boolean(account.sessionToken),
+    }));
+    res.json(accounts);
+  });
+
+  app.post("/api/admin/provider-accounts", adminAuth, async (req: Request, res: Response) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+
+    try {
+      const normalizedUsername = String(username).trim();
+      if (!normalizedUsername) {
+        return res.status(400).json({ error: "Username is required" });
+      }
+
+      const existing = providerAuthStorage.getProviderByUsername(normalizedUsername);
+      if (existing) {
+        return res.status(400).json({ error: "A provider account with this username already exists" });
+      }
+
+      const hashedPassword = await bcrypt.hash(String(password), 10);
+      const account = providerAuthStorage.createProviderAccount(normalizedUsername, hashedPassword);
+      res.json({
+        id: account.id,
+        username: account.username,
+        createdAt: account.createdAt,
+        hasSession: Boolean(account.sessionToken),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/admin/provider-accounts/:id", adminAuth, async (req: Request, res: Response) => {
+    const { username, password, clearSession } = req.body;
+
+    try {
+      const existing = providerAuthStorage.getProviderById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Provider account not found" });
+      }
+
+      let updatedUsername: string | undefined;
+      if (username !== undefined) {
+        const normalizedUsername = String(username).trim();
+        if (!normalizedUsername) {
+          return res.status(400).json({ error: "Username is required" });
+        }
+        if (normalizedUsername !== existing.username) {
+          const conflict = providerAuthStorage.getProviderByUsername(normalizedUsername);
+          if (conflict && conflict.id !== existing.id) {
+            return res.status(400).json({ error: "A provider account with this username already exists" });
+          }
+        }
+        updatedUsername = normalizedUsername;
+      }
+
+      let passwordHash: string | undefined;
+      if (password !== undefined) {
+        const normalizedPassword = String(password);
+        if (!normalizedPassword) {
+          return res.status(400).json({ error: "Password is required" });
+        }
+        passwordHash = await bcrypt.hash(normalizedPassword, 10);
+      }
+
+      const updated = providerAuthStorage.updateProviderAccount(req.params.id, {
+        username: updatedUsername,
+        passwordHash,
+        clearSession: Boolean(clearSession),
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "Provider account not found" });
+      }
+
+      res.json({
+        id: updated.id,
+        username: updated.username,
+        createdAt: updated.createdAt,
+        hasSession: Boolean(updated.sessionToken),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/provider-accounts/:id", adminAuth, async (req: Request, res: Response) => {
+    const existing = providerAuthStorage.getProviderById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: "Provider account not found" });
+    }
+
+    const providers = await storage.getProviders();
+    const ownsProviders = providers.some((provider) => provider.ownerId === existing.id);
+    if (ownsProviders) {
+      return res.status(400).json({ error: "Cannot delete account that owns providers" });
+    }
+
+    const success = providerAuthStorage.deleteProviderAccount(req.params.id);
+    res.json({ success });
+  });
+
+  // Providers
+  app.get("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
+    const providers = await storage.getProviders();
+    const providersWithCounts = await Promise.all(
+      providers.map(async (provider) => {
+        const keys = await storage.getApiKeys(provider.id);
+        const models = await storage.getModels(provider.id);
+        const owner = provider.ownerId ? providerAuthStorage.getProviderById(provider.ownerId) : undefined;
+        return {
+          ...provider,
+          keysCount: keys.length,
+          modelsCount: models.length,
+          ownerUsername: owner?.username,
+        };
+      })
+    );
+    res.json(providersWithCounts);
+  });
+
+  app.post("/api/admin/providers/:id/assign-owner", adminAuth, async (req: Request, res: Response) => {
+    const { username } = req.body;
+
+    if (!username) {
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const provider = await storage.getProvider(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+
+    const normalizedUsername = String(username).trim();
+    if (!normalizedUsername) {
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const account = providerAuthStorage.getProviderByUsername(normalizedUsername);
+    if (!account) {
+      return res.status(404).json({ error: "Provider account not found" });
+    }
+
+    const previousOwnerId = provider.ownerId;
+    const updatedProvider = await storage.updateProvider(req.params.id, { ownerId: account.id });
+    if (!updatedProvider) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+
+    let deletedTokens = 0;
+    if (previousOwnerId !== account.id) {
+      const tokens = await storage.getUserTokens();
+      const tokensToDelete = tokens.filter((token) => {
+        const allowed = token.allowedProviders;
+        if (!allowed || allowed.length === 0) {
+          return true;
+        }
+        return allowed.includes(updatedProvider.id);
+      });
+
+      for (const token of tokensToDelete) {
+        const deleted = await storage.deleteUserToken(token.id);
+        if (deleted) {
+          deletedTokens++;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      deletedTokens,
+      provider: {
+        ...updatedProvider,
+        ownerUsername: account.username,
+      },
+    });
   });
 
   app.post("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
@@ -1066,9 +1968,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let enabledProviders = providers.filter((p) => p.enabled);
 
     // Filter providers based on user's allowed providers if specified
-    if (userToken.allowedProviders && userToken.allowedProviders.length > 0) {
+    const allowedProviderIds = await resolveTokenAllowedProviders(userToken);
+    if (allowedProviderIds.length > 0) {
       enabledProviders = enabledProviders.filter((p) =>
-        userToken.allowedProviders.includes(p.id)
+        allowedProviderIds.includes(p.id)
       );
     }
 
@@ -1186,8 +2089,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check provider access control
-      if (userToken.allowedProviders && userToken.allowedProviders.length > 0) {
-        if (!userToken.allowedProviders.includes(provider.id)) {
+      const allowedProviderIds = await resolveTokenAllowedProviders(userToken);
+      if (allowedProviderIds.length > 0) {
+        if (!allowedProviderIds.includes(provider.id)) {
           return safeSendError(403, `You don't have access to ${targetModel.modelId} from ${provider.name}`);
         }
       }

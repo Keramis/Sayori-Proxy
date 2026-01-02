@@ -3,7 +3,11 @@ import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./ThemeToggle";
 
-export function Header() {
+interface HeaderProps {
+  hideProviderLogin?: boolean;
+}
+
+export function Header({ hideProviderLogin = false }: HeaderProps) {
   const [, navigate] = useLocation();
 
   return (
@@ -19,6 +23,14 @@ export function Header() {
         </button>
         
         <div className="flex items-center gap-3">
+          {!hideProviderLogin && (
+            <Button
+              variant="outline"
+              onClick={() => navigate("/provider")}
+            >
+              Provider Login
+            </Button>
+          )}
           <ThemeToggle />
         </div>
       </div>

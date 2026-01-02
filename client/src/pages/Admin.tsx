@@ -4,6 +4,8 @@ import { AdminProviderForm } from "@/components/AdminProviderForm";
 import { AdminProviderList } from "@/components/AdminProviderList";
 import { AdminUserTokenForm } from "@/components/AdminUserTokenForm";
 import { AdminUserTokenList } from "@/components/AdminUserTokenList";
+import { AdminProviderAccountForm } from "@/components/AdminProviderAccountForm";
+import { AdminProviderAccountList } from "@/components/AdminProviderAccountList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -169,6 +171,18 @@ export default function Admin() {
             >
               User Tokens
             </button>
+            <button
+              onClick={() => setActiveTab("provider-users")}
+              className={cn(
+                "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
+                activeTab === "provider-users"
+                  ? "bg-background text-foreground shadow"
+                  : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
+              )}
+              data-testid="tab-provider-users"
+            >
+              User Providers
+            </button>
           </div>
 
           {activeTab === "providers" && (
@@ -199,6 +213,22 @@ export default function Admin() {
               <div>
                 <h2 className="text-xl font-semibold mb-4">Existing Tokens</h2>
                 <AdminUserTokenList />
+              </div>
+            </div>
+          )}
+
+          {activeTab === "provider-users" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Create Provider Account</h2>
+                <div className="max-w-2xl">
+                  <AdminProviderAccountForm />
+                </div>
+              </div>
+
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Existing Provider Accounts</h2>
+                <AdminProviderAccountList />
               </div>
             </div>
           )}

@@ -6,28 +6,22 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowRightLeft, Edit, Trash2, ChevronDown, ChevronRight, Key, Check, X } from "lucide-react";
+import { Edit, Trash2, ChevronDown, ChevronRight, Key, Check, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { AdminModelList } from "./AdminModelList";
+import { ProviderModelList } from "./ProviderModelList";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Edit2 } from "lucide-react";
-import { AdminProviderForm } from "./AdminProviderForm";
+import { ProviderProviderForm } from "./ProviderProviderForm";
 
-interface AdminProviderListProps { }
+interface ProviderProviderListProps { }
 
-export function AdminProviderList({ }: AdminProviderListProps) {
+export function ProviderProviderList({ }: ProviderProviderListProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
@@ -35,13 +29,10 @@ export function AdminProviderList({ }: AdminProviderListProps) {
   const [showKeys, setShowKeys] = useState<string | null>(null);
   const [modelSearchMap, setModelSearchMap] = useState<Map<string, string>>(new Map());
   const [searchQuery, setSearchQuery] = useState("");
-  const [assigningProvider, setAssigningProvider] = useState<any>(null);
-  const [assignUsername, setAssignUsername] = useState("");
-  const [assignLoading, setAssignLoading] = useState(false);
 
   const { data: providersData, isLoading } = useQuery({
-    queryKey: ["/api/admin/providers"],
-    queryFn: () => api.getProviders(),
+    queryKey: ["/api/providers"],
+    queryFn: () => api.providerGetProviders(),
   });
 
   // Ensure providers is always an array
@@ -60,8 +51,8 @@ export function AdminProviderList({ }: AdminProviderListProps) {
 
   const toggleProvider = async (id: string, currentState: boolean) => {
     try {
-      await api.updateProvider(id, { enabled: !currentState });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+      await api.providerUpdateProvider(id, { enabled: !currentState });
+      queryClient.invalidateQueries({ queryKey: ["/api/providers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
       toast({
         title: "Provider Updated",
@@ -82,10 +73,10 @@ export function AdminProviderList({ }: AdminProviderListProps) {
     }
 
     try {
-      await api.deleteProvider(id);
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+      await api.providerDeleteProvider(id);
+      queryClient.invalidateQueries({ queryKey: ["/api/providers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/providers/public"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/tokens"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/providers/tokens"] });
       toast({
         title: "Provider Deleted",
         description: "Provider has been deleted successfully",
@@ -109,48 +100,6 @@ export function AdminProviderList({ }: AdminProviderListProps) {
       }
       return newSet;
     });
-  };
-
-  const openAssignDialog = (provider: any) => {
-    setAssigningProvider(provider);
-    setAssignUsername("");
-  };
-
-  const closeAssignDialog = () => {
-    setAssigningProvider(null);
-    setAssignUsername("");
-  };
-
-  const handleAssignOwner = async () => {
-    if (!assigningProvider) return;
-    const trimmedUsername = assignUsername.trim();
-    if (!trimmedUsername) {
-      toast({
-        title: "Username Required",
-        description: "Enter a provider account username to assign.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setAssignLoading(true);
-    try {
-      const result = await api.assignProviderOwner(assigningProvider.id, trimmedUsername);
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
-      toast({
-        title: "Provider Assigned",
-        description: `Assigned to ${trimmedUsername}${result?.deletedTokens ? ` · ${result.deletedTokens} token${result.deletedTokens === 1 ? "" : "s"} cleared` : ""}`,
-      });
-      closeAssignDialog();
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to assign provider owner",
-        variant: "destructive",
-      });
-    } finally {
-      setAssignLoading(false);
-    }
   };
 
   if (isLoading) {
@@ -200,7 +149,7 @@ export function AdminProviderList({ }: AdminProviderListProps) {
           {editingProvider?.id === provider.id ? (
             <div className="space-y-3">
               <h3 className="font-semibold text-lg mb-4">Edit Provider</h3>
-              <AdminProviderForm
+              <ProviderProviderForm
                 editProvider={editingProvider}
                 onEditComplete={() => setEditingProvider(null)}
                 onSearchChange={(search) => {
@@ -227,9 +176,6 @@ export function AdminProviderList({ }: AdminProviderListProps) {
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground font-mono break-all">{provider.baseUrl}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Owner: {provider.ownerUsername || "Unassigned"}
-                  </p>
                 </div>
 
                 <div className="flex items-center gap-3 flex-shrink-0">
@@ -243,14 +189,6 @@ export function AdminProviderList({ }: AdminProviderListProps) {
                       {provider.enabled ? "Enabled" : "Disabled"}
                     </span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => openAssignDialog(provider)}
-                    data-testid={`button-assign-${provider.id}`}
-                  >
-                    <ArrowRightLeft className="h-4 w-4" />
-                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -305,7 +243,7 @@ export function AdminProviderList({ }: AdminProviderListProps) {
                       />
                     </div>
                   )}
-                  <AdminModelList
+                  <ProviderModelList
                     providerId={provider.id}
                     providerName={provider.name}
                     searchQuery={modelSearchMap.get(provider.id) || ""}
@@ -318,32 +256,6 @@ export function AdminProviderList({ }: AdminProviderListProps) {
           ))}
         </div>
       )}
-
-      <Dialog open={!!assigningProvider} onOpenChange={(open) => !open && closeAssignDialog()}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Assign Provider Account</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="assign-provider-username">Provider Account Username</Label>
-              <Input
-                id="assign-provider-username"
-                placeholder="e.g., provider_team"
-                value={assignUsername}
-                onChange={(e) => setAssignUsername(e.target.value)}
-              />
-            </div>
-            <Button
-              className="w-full"
-              onClick={handleAssignOwner}
-              disabled={assignLoading}
-            >
-              {assignLoading ? "Assigning..." : "Assign Provider"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
