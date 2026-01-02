@@ -292,21 +292,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // req.secure reflects the original HTTPS request and X-Forwarded-* works.
   app.set("trust proxy", 1);
 
-  const port = process.env.PORT || '5000';
-  const whitelist = [`http://localhost:${port}`, `http://127.0.0.1:${port}`, "https://sayori-proxy.com"];
-
   // Enable CORS
   app.use(cors({
-    // origin: true, // Allow all origins but reflect request origin
-    origin: function(origin, callback) {
-      if (!origin) return callback(null, true);
-
-      if (whitelist.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: true, // Reflect request origin to allow all origins while supporting credentials
     credentials: true,
   }));
 
