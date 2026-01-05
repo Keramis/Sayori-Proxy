@@ -2422,7 +2422,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const deniedMessage = `# Your request was denied!
 Your IP address is not whitelisted on our platform.
 
-![Hanging](https://static.wikia.nocookie.net/doki-doki-literature-club/images/2/2d/Sayori_Hanging_%28s_kill%29.png/revision/latest?cb=20171117231739)
+![Hanging](https://i.redd.it/yoec008jvof11.png)
 
 If you're an authorized user, update your IP on the platform.
 
