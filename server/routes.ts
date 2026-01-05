@@ -13,6 +13,19 @@ import {
 } from "@shared/schema";
 import { rateLimit } from 'express-rate-limit';
 import { checkStringValidity, countInputTokens, estimateTokens, getClientIP } from '../tools/utils';
+import {
+  buildAuthorizationUrl,
+  exchangeCodeForTokens,
+  fetchUserInfo,
+  refreshAccessToken
+} from './discord-oauth';
+import {
+  createSessionToken,
+  getSessionFromRequest,
+  setSessionCookie,
+  clearSessionCookie,
+  SESSION_COOKIE_NAME
+} from './jwe-session';
 
 /* DEFINING RATE LIMIT FUNCITONS UP IN HERE */
 const adminLoginRateLimit = rateLimit({
@@ -103,6 +116,17 @@ const userManageRateLimit = rateLimit({
     res.status(options.statusCode).send(options.message);
   }
 });
+const authRateLimit = rateLimit({
+  windowMs: 60 * 1_000, // 1 minute
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many authentication requests!",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  },
+});
 
 
 import session from "express-session";
@@ -110,6 +134,20 @@ import connectSqlite3 from "connect-sqlite3";
 import bcrypt from "bcrypt";
 
 const SQLiteStore = connectSqlite3(session);
+
+// OAuth state storage for CSRF protection
+const oauthStates = new Map<string, { timestamp: number; returnTo?: string }>();
+const STATE_EXPIRY = 10 * 60 * 1000; // 10 minutes
+
+// Clean up expired states periodically
+setInterval(() => {
+  const now = Date.now();
+  oauthStates.forEach((value, key) => {
+    if (now - value.timestamp > STATE_EXPIRY) {
+      oauthStates.delete(key);
+    }
+  });
+}, 60 * 1000); // Clean every minute
 
 // Middleware for admin authentication
 function adminAuth(req: Request, res: Response, next: Function) {
@@ -330,6 +368,175 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Public routes
 
+
+  // Discord OAuth Routes
+
+  // GET /api/auth/discord - Initiate OAuth flow
+  app.get("/api/auth/discord", authRateLimit, (req: Request, res: Response) => {
+    // Generate cryptographically secure state
+    const state = randomUUID();
+    
+    // Store state with optional return URL
+    const returnTo = req.query.returnTo as string | undefined;
+    oauthStates.set(state, { timestamp: Date.now(), returnTo });
+    
+    // Build authorization URL and redirect
+    const authUrl = buildAuthorizationUrl(state);
+    res.redirect(authUrl);
+  });
+
+  // GET /api/auth/discord/callback - Handle OAuth callback
+  app.get("/api/auth/discord/callback", authRateLimit, async (req: Request, res: Response) => {
+    const { code, state, error } = req.query;
+    
+    // Handle OAuth errors from Discord
+    if (error) {
+      console.error("Discord OAuth error:", error);
+      return res.redirect("/?error=oauth_denied");
+    }
+    
+    // Validate state parameter
+    if (!state || typeof state !== 'string') {
+      return res.redirect("/?error=invalid_state");
+    }
+    
+    const storedState = oauthStates.get(state);
+    if (!storedState) {
+      return res.redirect("/?error=invalid_state");
+    }
+    
+    // Remove used state
+    oauthStates.delete(state);
+    
+    // Check state expiry
+    if (Date.now() - storedState.timestamp > STATE_EXPIRY) {
+      return res.redirect("/?error=state_expired");
+    }
+    
+    // Validate code
+    if (!code || typeof code !== 'string') {
+      return res.redirect("/?error=missing_code");
+    }
+    
+    try {
+      // Exchange code for tokens
+      const tokens = await exchangeCodeForTokens(code);
+      
+      // Fetch user info from Discord
+      const discordUser = await fetchUserInfo(tokens.access_token);
+      
+      // Create or update user in database
+      let user = await storage.getDiscordUser(discordUser.id);
+      if (user) {
+        // Update existing user
+        user = await storage.updateDiscordUser(discordUser.id, {
+          username: discordUser.username,
+          discriminator: discordUser.discriminator,
+          globalName: discordUser.global_name,
+          email: discordUser.email,
+          avatar: discordUser.avatar,
+        });
+      } else {
+        // Create new user
+        user = await storage.createDiscordUser({
+          id: discordUser.id,
+          username: discordUser.username,
+          discriminator: discordUser.discriminator,
+          globalName: discordUser.global_name,
+          email: discordUser.email,
+          avatar: discordUser.avatar,
+        });
+      }
+      
+      // Create session token
+      const sessionToken = await createSessionToken({
+        userId: discordUser.id,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        tokenExpiresAt: Date.now() + (tokens.expires_in * 1000),
+      });
+      
+      // Set session cookie
+      setSessionCookie(res, sessionToken);
+      
+      // Redirect to return URL or home
+      const returnTo = storedState.returnTo || "/";
+      res.redirect(returnTo);
+      
+    } catch (error: any) {
+      console.error("Discord OAuth callback error:", error);
+      res.redirect("/?error=auth_failed");
+    }
+  });
+
+  // GET /api/auth/me - Get current authenticated user
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
+    try {
+      const session = await getSessionFromRequest(req);
+      
+      if (!session) {
+        return res.json({ authenticated: false, user: null });
+      }
+      
+      // Check if token needs refresh (expires within 1 hour)
+      const ONE_HOUR = 60 * 60 * 1000;
+      if (session.tokenExpiresAt - Date.now() < ONE_HOUR) {
+        try {
+          // Attempt to refresh the token
+          const newTokens = await refreshAccessToken(session.refreshToken);
+          
+          // Create new session with refreshed tokens
+          const newSessionToken = await createSessionToken({
+            userId: session.userId,
+            accessToken: newTokens.access_token,
+            refreshToken: newTokens.refresh_token,
+            tokenExpiresAt: Date.now() + (newTokens.expires_in * 1000),
+          });
+          
+          // Update cookie with new session
+          setSessionCookie(res, newSessionToken);
+        } catch (refreshError) {
+          console.error("Token refresh failed:", refreshError);
+          // Clear invalid session
+          clearSessionCookie(res);
+          return res.json({ authenticated: false, user: null });
+        }
+      }
+      
+      // Get user from database
+      const user = await storage.getDiscordUser(session.userId);
+      
+      if (!user) {
+        clearSessionCookie(res);
+        return res.json({ authenticated: false, user: null });
+      }
+      
+      // Return user info (without sensitive data)
+      res.json({
+        authenticated: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          globalName: user.globalName,
+          email: user.email,
+          avatar: user.avatar,
+          avatarUrl: user.avatar
+            ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+            : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator) % 5}.png`,
+        },
+      });
+      
+    } catch (error: any) {
+      console.error("Auth me error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // POST /api/auth/logout - Logout and clear session
+  app.post("/api/auth/logout", authRateLimit, (req: Request, res: Response) => {
+    clearSessionCookie(res);
+    res.json({ success: true });
+  });
 
   app.get("/api/admin/me", async (req: Request, res: Response) => {
     if (!(req.session as any).adminId) {

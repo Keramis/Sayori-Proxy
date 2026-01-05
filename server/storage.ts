@@ -12,6 +12,8 @@ import {
   Stats,
   AdminCredentials,
   Admin,
+  DiscordUser,
+  InsertDiscordUser,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -78,6 +80,11 @@ export interface IStorage {
   // Admin methods
   getAdmin(username: string): Promise<Admin | undefined>;
   createAdmin(username: string, password: string): Promise<Admin>;
+
+  // Discord User methods
+  getDiscordUser(id: string): Promise<DiscordUser | undefined>;
+  createDiscordUser(user: InsertDiscordUser): Promise<DiscordUser>;
+  updateDiscordUser(id: string, user: Partial<InsertDiscordUser>): Promise<DiscordUser | undefined>;
 
   // Auth methods
   getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth">;

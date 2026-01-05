@@ -2,6 +2,10 @@ import { useLocation } from "wouter";
 import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./ThemeToggle";
+import { useAuth } from "@/contexts/AuthContext";
+import { DiscordLoginButton } from "./DiscordLoginButton";
+import { UserMenu } from "./UserMenu";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface HeaderProps {
   hideProviderLogin?: boolean;
@@ -9,6 +13,7 @@ interface HeaderProps {
 
 export function Header({ hideProviderLogin = false }: HeaderProps) {
   const [, navigate] = useLocation();
+  const { isAuthenticated, isLoading } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -31,6 +36,16 @@ export function Header({ hideProviderLogin = false }: HeaderProps) {
               Provider Login
             </Button>
           )}
+          
+          {/* Discord Auth Section */}
+          {isLoading ? (
+            <Skeleton className="h-10 w-10 rounded-full" />
+          ) : isAuthenticated ? (
+            <UserMenu />
+          ) : (
+            <DiscordLoginButton size="default" />
+          )}
+          
           <ThemeToggle />
         </div>
       </div>

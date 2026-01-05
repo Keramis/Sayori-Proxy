@@ -16,7 +16,8 @@ import {
   InsertUsageRecord,
   Stats,
   AdminCredentials,
-  Admin,
+  Admin,DiscordUser,
+  InsertDiscordUser,
 } from '@shared/schema';
 import { IStorage } from './storage';
 
@@ -172,6 +173,18 @@ export class SQLiteStorage implements IStorage {
       timestamp: row.timestamp,
       cost: row.cost,
     };
+  }
+
+  private rowToDiscordUser(row: any): DiscordUser {
+    return {
+      id: row.id,
+      username: row.username,
+      discriminator: row.discriminator,
+      globalName: row.global_name ?? undefined,
+      email: row.email ?? undefined,
+      avatar: row.avatar ?? undefined,
+      createdAt: row.created_at,
+      lastLoginAt: row.last_login_at,};
   }
 
   // Provider methods go here, TODO, ADD LATER OMG COMMENTS
@@ -1392,6 +1405,95 @@ export class SQLiteStorage implements IStorage {
     } catch (error) {
       console.error('Error getting general password:', error);
       return undefined;
+    }
+  }
+
+  // Discord User methods
+  async getDiscordUser(id: string): Promise<DiscordUser | undefined> {
+    try {
+      const stmt = this.db.prepare('SELECT * FROM discord_users WHERE id = ?');
+      const row = stmt.get(id);
+      return row ? this.rowToDiscordUser(row) : undefined;
+    } catch (error) {
+      console.error('Error getting Discord user:', error);
+      throw error;
+    }
+  }
+
+  async createDiscordUser(user: InsertDiscordUser): Promise<DiscordUser> {
+    try {
+      const now = Date.now();
+
+      const stmt = this.db.prepare(`
+        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      stmt.run(
+        user.id,
+        user.username,
+        user.discriminator,
+        user.globalName ?? null,
+        user.email ?? null,
+        user.avatar ?? null,
+        now,
+        now
+      );
+
+      const result = await this.getDiscordUser(user.id);
+      if (!result) {
+        throw new Error(`Failed to create Discord user with ID: ${user.id}`);
+      }
+      return result;
+    } catch (error) {
+      console.error('Error creating Discord user:', error);
+      throw error;
+    }
+  }
+
+  async updateDiscordUser(id: string, user: Partial<InsertDiscordUser>): Promise<DiscordUser | undefined> {
+    try {
+      const existing = await this.getDiscordUser(id);
+      if (!existing) return undefined;
+
+      const updates: string[] = [];
+      const values: any[] = [];
+
+      if (user.username !== undefined) {
+        updates.push('username = ?');
+        values.push(user.username);
+      }
+      if (user.discriminator !== undefined) {
+        updates.push('discriminator = ?');
+        values.push(user.discriminator);
+      }
+      if (user.globalName !== undefined) {
+        updates.push('global_name = ?');
+        values.push(user.globalName);
+      }
+      if (user.email !== undefined) {
+        updates.push('email = ?');
+        values.push(user.email);
+      }
+      if (user.avatar !== undefined) {
+        updates.push('avatar = ?');
+        values.push(user.avatar);
+      }
+
+      // Always update lastLoginAt
+      updates.push('last_login_at = ?');
+      values.push(Date.now());
+
+      if (updates.length === 0) return existing;
+
+      values.push(id);
+      const stmt = this.db.prepare(`UPDATE discord_users SET ${updates.join(', ')} WHERE id = ?`);
+      stmt.run(...values);
+
+      return this.getDiscordUser(id);
+    } catch (error) {
+      console.error('Error updating Discord user:', error);
+      throw error;
     }
   }
 

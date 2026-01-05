@@ -14,3 +14,4 @@ database.sqlite-wal
 sessions.sqlite
 providers.sqlite
 providers.db
+bun.lock

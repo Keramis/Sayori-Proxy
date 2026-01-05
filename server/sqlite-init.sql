@@ -219,3 +219,18 @@ INSERT INTO system_config (key, value, updated_at) VALUES
 ('total_tokens_all', '0', strftime('%s', 'now')),
 ('total_requests_all', '0', strftime('%s', 'now')),
 ('active_requests', '0', strftime('%s', 'now'));
+
+-- Discord Users table
+CREATE TABLE IF NOT EXISTS discord_users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  discriminator TEXT NOT NULL,
+  global_name TEXT,
+  email TEXT,
+  avatar TEXT,
+  created_at INTEGER NOT NULL,
+  last_login_at INTEGER NOT NULL
+);
+
+-- Index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_discord_users_username ON discord_users(username);
