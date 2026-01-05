@@ -471,14 +471,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           avatar: discordUser.avatar,
         };
         
+        // Set IP on first login but DON'T set lastIpUpdate
+        // This allows the user to immediately update their IP if needed
         if (!user.ip) {
           updateData.ip = clientIp;
-          updateData.lastIpUpdate = now;
+          // Don't set lastIpUpdate here - cooldown only starts on manual IP change
         }
         
         user = await storage.updateDiscordUser(discordUser.id, updateData);
       } else {
         // Create new user
+        // Set IP on first login but DON'T set lastIpUpdate
+        // This allows the user to immediately update their IP if needed
         user = await storage.createDiscordUser({
           id: discordUser.id,
           username: discordUser.username,
@@ -487,7 +491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: discordUser.email,
           avatar: discordUser.avatar,
           ip: clientIp,
-          lastIpUpdate: now,
+          // Don't set lastIpUpdate here - cooldown only starts on manual IP change
         });
       }
       
