@@ -233,7 +233,6 @@ export class SQLiteStorage implements IStorage {
       username: row.username,
       discriminator: row.discriminator,
       globalName: row.global_name ?? undefined,
-      email: row.email ?? undefined,
       avatar: row.avatar ?? undefined,
       createdAt: row.created_at,
       lastLoginAt: row.last_login_at,
@@ -1495,8 +1494,8 @@ export class SQLiteStorage implements IStorage {
       const roles = user.roles && user.roles.length > 0 ? JSON.stringify(user.roles) : '["user"]';
 
       const stmt = this.db.prepare(`
-        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at, ip, last_ip_update, banned, ban_reason, roles)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO discord_users (id, username, discriminator, global_name, avatar, created_at, last_login_at, ip, last_ip_update, banned, ban_reason, roles)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -1504,7 +1503,6 @@ export class SQLiteStorage implements IStorage {
         user.username,
         user.discriminator,
         user.globalName ?? null,
-        user.email ?? null,
         user.avatar ?? null,
         now,
         now,
@@ -1564,10 +1562,6 @@ export class SQLiteStorage implements IStorage {
       if (user.globalName !== undefined) {
         updates.push('global_name = ?');
         values.push(user.globalName);
-      }
-      if (user.email !== undefined) {
-        updates.push('email = ?');
-        values.push(user.email);
       }
       if (user.avatar !== undefined) {
         updates.push('avatar = ?');

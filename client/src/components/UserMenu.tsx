@@ -132,11 +132,6 @@ export function UserMenu() {
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">{displayName}</p>
-            {user.email && (
-              <p className="text-xs leading-none text-muted-foreground mb-2">
-                {user.email}
-              </p>
-            )}
             
             {/* IP Display Section */}
             <div className={`flex items-center justify-between p-2 rounded-md border ${isIpMismatch ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'bg-muted/50 border-transparent'}`}>

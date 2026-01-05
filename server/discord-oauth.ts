@@ -8,7 +8,7 @@ const DISCORD_API_BASE = 'https://discord.com/api';
 const DISCORD_OAUTH_BASE = 'https://discord.com/oauth2';
 
 // OAuth scopes required for the application
-const OAUTH_SCOPES = ['identify', 'guilds', 'email'];
+const OAUTH_SCOPES = ['identify', 'guilds'];
 
 /**
  * Response from Discord's token endpoint
@@ -29,7 +29,6 @@ export interface DiscordUserInfo {
   username: string;
   discriminator: string;
   global_name?: string;
-  email?: string;
   avatar?: string;
   verified?: boolean;
 }
@@ -160,7 +159,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
 /**
  * Fetch the authenticated user's information from Discord
  * @param accessToken - Valid Discord access token
- * @returns User information including ID, username, email, etc.
+ * @returns User information including ID, username, avatar, etc.
  */
 export async function fetchUserInfo(accessToken: string): Promise<DiscordUserInfo> {
   try {

@@ -146,7 +146,6 @@ export interface DiscordUser {
   username: string;        // Discord username
   discriminator: string;   // Discord discriminator (legacy, may be "0")
   globalName?: string;     // Display name (new Discord naming)
-  email?: string;          // User email (if email scope granted)
   avatar?: string;         // Avatar hash
   createdAt: number;       // When user first logged in (timestamp)
   lastLoginAt: number;     // Last login timestamp
@@ -162,7 +161,6 @@ export const insertDiscordUserSchema = z.object({
   username: z.string(),
   discriminator: z.string(),
   globalName: z.string().optional(),
-  email: z.string().email().optional(),
   avatar: z.string().optional(),
   ip: z.string().optional(),
   lastIpUpdate: z.number().optional(),

@@ -39,7 +39,6 @@ interface DiscordUser {
   username: string;
   discriminator: string;
   globalName?: string;
-  email?: string;
   avatar?: string;
   avatarUrl: string;
   createdAt: number;

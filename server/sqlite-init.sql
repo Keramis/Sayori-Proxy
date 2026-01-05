@@ -226,7 +226,6 @@ CREATE TABLE IF NOT EXISTS discord_users (
   username TEXT NOT NULL,
   discriminator TEXT NOT NULL,
   global_name TEXT,
-  email TEXT,
   avatar TEXT,
   created_at INTEGER NOT NULL,
   last_login_at INTEGER NOT NULL,

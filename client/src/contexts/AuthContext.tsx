@@ -7,7 +7,6 @@ interface DiscordUser {
   id: string;
   username: string;
   globalName?: string;
-  email?: string;
   avatar?: string;
   avatarUrl: string;
   authorizedIp?: string;

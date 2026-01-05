@@ -467,7 +467,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           username: discordUser.username,
           discriminator: discordUser.discriminator,
           globalName: discordUser.global_name,
-          email: discordUser.email,
           avatar: discordUser.avatar,
         };
         
@@ -488,7 +487,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           username: discordUser.username,
           discriminator: discordUser.discriminator,
           globalName: discordUser.global_name,
-          email: discordUser.email,
           avatar: discordUser.avatar,
           ip: clientIp,
           // Don't set lastIpUpdate here - cooldown only starts on manual IP change
@@ -570,7 +568,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: user.id,
           username: user.username,
           globalName: user.globalName,
-          email: user.email,
           avatar: user.avatar,
           avatarUrl: user.avatar
             ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
