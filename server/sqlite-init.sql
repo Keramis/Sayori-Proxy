@@ -229,7 +229,9 @@ CREATE TABLE IF NOT EXISTS discord_users (
   email TEXT,
   avatar TEXT,
   created_at INTEGER NOT NULL,
-  last_login_at INTEGER NOT NULL
+  last_login_at INTEGER NOT NULL,
+  ip TEXT,
+  last_ip_update INTEGER
 );
 
 -- Index for faster lookups

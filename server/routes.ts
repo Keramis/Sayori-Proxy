@@ -17,7 +17,8 @@ import {
   buildAuthorizationUrl,
   exchangeCodeForTokens,
   fetchUserInfo,
-  refreshAccessToken
+  refreshAccessToken,
+  fetchUserGuilds
 } from './discord-oauth';
 import {
   createSessionToken,
@@ -424,18 +425,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Fetch user info from Discord
       const discordUser = await fetchUserInfo(tokens.access_token);
+
+      // Check for Guild Membership if configured
+      const requiredGuildId = process.env.GUILD_ID;
+      if (requiredGuildId) {
+        try {
+          const userGuilds = await fetchUserGuilds(tokens.access_token);
+          const isMember = userGuilds.some(guild => guild.id === requiredGuildId);
+          
+          if (!isMember) {
+            console.log(`User ${discordUser.username} (${discordUser.id}) attempted login but is not in required guild ${requiredGuildId}`);
+            return res.redirect("/?error=guild_required");
+          }
+        } catch (guildError) {
+          console.error("Failed to verify guild membership:", guildError);
+          // If we can't verify membership but it's required, fail safe
+          return res.redirect("/?error=auth_failed");
+        }
+      }
       
       // Create or update user in database
+      const clientIp = getClientIP(req);
+      const now = Date.now();
+      
       let user = await storage.getDiscordUser(discordUser.id);
       if (user) {
         // Update existing user
-        user = await storage.updateDiscordUser(discordUser.id, {
+        // Only update IP if user doesn't have one set (first login)
+        // Subsequent IP updates must be manual via the update endpoint
+        const updateData: any = {
           username: discordUser.username,
           discriminator: discordUser.discriminator,
           globalName: discordUser.global_name,
           email: discordUser.email,
           avatar: discordUser.avatar,
-        });
+        };
+        
+        if (!user.ip) {
+          updateData.ip = clientIp;
+          updateData.lastIpUpdate = now;
+        }
+        
+        user = await storage.updateDiscordUser(discordUser.id, updateData);
       } else {
         // Create new user
         user = await storage.createDiscordUser({
@@ -445,6 +476,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           globalName: discordUser.global_name,
           email: discordUser.email,
           avatar: discordUser.avatar,
+          ip: clientIp,
+          lastIpUpdate: now,
         });
       }
       
@@ -523,11 +556,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
           avatarUrl: user.avatar
             ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
             : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator) % 5}.png`,
+          authorizedIp: user.ip,
+          currentIp: getClientIP(req),
         },
       });
       
     } catch (error: any) {
       console.error("Auth me error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // POST /api/auth/update-ip - Update authorized IP
+  app.post("/api/auth/update-ip", authRateLimit, async (req: Request, res: Response) => {
+    try {
+      const session = await getSessionFromRequest(req);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const user = await storage.getDiscordUser(session.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const now = Date.now();
+      const thirtyMinutes = 30 * 60 * 1000;
+      
+      // Check cooldown
+      if (user.lastIpUpdate && (now - user.lastIpUpdate < thirtyMinutes)) {
+        const remainingMinutes = Math.ceil((thirtyMinutes - (now - user.lastIpUpdate)) / 60000);
+        return res.status(429).json({
+          error: `You can only update your IP once every 30 minutes. Please wait ${remainingMinutes} minutes.`
+        });
+      }
+      
+      const newIp = getClientIP(req);
+      
+      // Update IP
+      const updatedUser = await storage.updateDiscordUser(user.id, {
+        ip: newIp,
+        lastIpUpdate: now,
+      });
+      
+      res.json({
+        success: true,
+        ip: newIp,
+        message: "Authorized IP updated successfully"
+      });
+      
+    } catch (error: any) {
+      console.error("Error updating IP:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -2196,6 +2276,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Chat completions proxy
   app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req: Request, res: Response) => {
+    // Check IP Authorization
+    const clientIp = getClientIP(req);
+    try {
+      const isAuthorized = await storage.isIpAuthorized(clientIp);
+      if (!isAuthorized) {
+        // Return 403 Forbidden with no body as per requirements
+        return res.sendStatus(403);
+      }
+    } catch (error) {
+      console.error("Error checking IP authorization:", error);
+      // Fail open or closed? Closed for security.
+      return res.sendStatus(403);
+    }
+
     let responseSent = false;
 
     const safeSendError = (statusCode: number, error: string) => {

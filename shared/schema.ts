@@ -150,6 +150,8 @@ export interface DiscordUser {
   avatar?: string;         // Avatar hash
   createdAt: number;       // When user first logged in (timestamp)
   lastLoginAt: number;     // Last login timestamp
+  ip?: string;             // Authorized IP address
+  lastIpUpdate?: number;   // Timestamp of last IP update
 }
 
 export const insertDiscordUserSchema = z.object({
@@ -159,6 +161,8 @@ export const insertDiscordUserSchema = z.object({
   globalName: z.string().optional(),
   email: z.string().email().optional(),
   avatar: z.string().optional(),
+  ip: z.string().optional(),
+  lastIpUpdate: z.number().optional(),
 });
 
 export type InsertDiscordUser = z.infer<typeof insertDiscordUserSchema>;

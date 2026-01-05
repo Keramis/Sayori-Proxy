@@ -85,6 +85,7 @@ export interface IStorage {
   getDiscordUser(id: string): Promise<DiscordUser | undefined>;
   createDiscordUser(user: InsertDiscordUser): Promise<DiscordUser>;
   updateDiscordUser(id: string, user: Partial<InsertDiscordUser>): Promise<DiscordUser | undefined>;
+  isIpAuthorized(ip: string): Promise<boolean>;
 
   // Auth methods
   getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth">;

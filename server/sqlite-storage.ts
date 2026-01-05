@@ -75,6 +75,7 @@ export class SQLiteStorage implements IStorage {
       this.ensureModelTokenLimitColumn();
       this.ensureProviderOwnerColumn();
       this.ensureUserTokenCreatorColumn();
+      this.ensureDiscordUserIpColumns();
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -105,6 +106,19 @@ export class SQLiteStorage implements IStorage {
     const hasCreator = columns.some((column) => column.name === "created_by_provider_id");
     if (!hasCreator) {
       this.db.exec("ALTER TABLE user_tokens ADD COLUMN created_by_provider_id TEXT");
+    }
+  }
+
+  private ensureDiscordUserIpColumns(): void {
+    const columns = this.db.prepare("PRAGMA table_info(discord_users)").all() as { name: string }[];
+    if (columns.length === 0) return;
+    const hasIp = columns.some((column) => column.name === "ip");
+    if (!hasIp) {
+      this.db.exec("ALTER TABLE discord_users ADD COLUMN ip TEXT");
+    }
+    const hasLastIpUpdate = columns.some((column) => column.name === "last_ip_update");
+    if (!hasLastIpUpdate) {
+      this.db.exec("ALTER TABLE discord_users ADD COLUMN last_ip_update INTEGER");
     }
   }
 
@@ -184,7 +198,10 @@ export class SQLiteStorage implements IStorage {
       email: row.email ?? undefined,
       avatar: row.avatar ?? undefined,
       createdAt: row.created_at,
-      lastLoginAt: row.last_login_at,};
+      lastLoginAt: row.last_login_at,
+      ip: row.ip ?? undefined,
+      lastIpUpdate: row.last_ip_update ?? undefined,
+    };
   }
 
   // Provider methods go here, TODO, ADD LATER OMG COMMENTS
@@ -1425,8 +1442,8 @@ export class SQLiteStorage implements IStorage {
       const now = Date.now();
 
       const stmt = this.db.prepare(`
-        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at, ip, last_ip_update)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -1437,7 +1454,9 @@ export class SQLiteStorage implements IStorage {
         user.email ?? null,
         user.avatar ?? null,
         now,
-        now
+        now,
+        user.ip ?? null,
+        user.lastIpUpdate ?? null
       );
 
       const result = await this.getDiscordUser(user.id);
@@ -1447,6 +1466,17 @@ export class SQLiteStorage implements IStorage {
       return result;
     } catch (error) {
       console.error('Error creating Discord user:', error);
+      throw error;
+    }
+  }
+
+  async isIpAuthorized(ip: string): Promise<boolean> {
+    try {
+      const stmt = this.db.prepare('SELECT 1 FROM discord_users WHERE ip = ?');
+      const row = stmt.get(ip);
+      return !!row;
+    } catch (error) {
+      console.error('Error checking authorized IP:', error);
       throw error;
     }
   }
@@ -1478,6 +1508,14 @@ export class SQLiteStorage implements IStorage {
       if (user.avatar !== undefined) {
         updates.push('avatar = ?');
         values.push(user.avatar);
+      }
+      if (user.ip !== undefined) {
+        updates.push('ip = ?');
+        values.push(user.ip);
+      }
+      if (user.lastIpUpdate !== undefined) {
+        updates.push('last_ip_update = ?');
+        values.push(user.lastIpUpdate);
       }
 
       // Always update lastLoginAt
