@@ -130,6 +130,10 @@ export class SQLiteStorage implements IStorage {
     if (!hasBanned) {
       this.db.exec("ALTER TABLE discord_users ADD COLUMN banned INTEGER DEFAULT 0");
     }
+    const hasBanReason = columns.some((column) => column.name === "ban_reason");
+    if (!hasBanReason) {
+      this.db.exec("ALTER TABLE discord_users ADD COLUMN ban_reason TEXT");
+    }
   }
 
   private rowToProvider(row: any): Provider {
@@ -212,6 +216,7 @@ export class SQLiteStorage implements IStorage {
       ip: row.ip ?? undefined,
       lastIpUpdate: row.last_ip_update ?? undefined,
       banned: Boolean(row.banned),
+      banReason: row.ban_reason ?? undefined,
     };
   }
 
@@ -1464,8 +1469,8 @@ export class SQLiteStorage implements IStorage {
       const now = Date.now();
 
       const stmt = this.db.prepare(`
-        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at, ip, last_ip_update, banned)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at, ip, last_ip_update, banned, ban_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -1479,7 +1484,8 @@ export class SQLiteStorage implements IStorage {
         now,
         user.ip ?? null,
         user.lastIpUpdate ?? null,
-        user.banned ? 1 : 0
+        user.banned ? 1 : 0,
+        user.banReason ?? null
       );
 
       const result = await this.getDiscordUser(user.id);
@@ -1504,12 +1510,12 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
-  async banDiscordUser(id: string): Promise<DiscordUser | undefined> {
-    return this.updateDiscordUser(id, { banned: true });
+  async banDiscordUser(id: string, reason?: string): Promise<DiscordUser | undefined> {
+    return this.updateDiscordUser(id, { banned: true, banReason: reason || "Dictatorship" });
   }
 
   async unbanDiscordUser(id: string): Promise<DiscordUser | undefined> {
-    return this.updateDiscordUser(id, { banned: false });
+    return this.updateDiscordUser(id, { banned: false, banReason: undefined });
   }
 
   async updateDiscordUser(id: string, user: Partial<InsertDiscordUser>): Promise<DiscordUser | undefined> {
@@ -1551,6 +1557,10 @@ export class SQLiteStorage implements IStorage {
       if (user.banned !== undefined) {
         updates.push('banned = ?');
         values.push(user.banned ? 1 : 0);
+      }
+      if (user.banReason !== undefined) {
+        updates.push('ban_reason = ?');
+        values.push(user.banReason);
       }
 
       // Always update lastLoginAt

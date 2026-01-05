@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 
 // User type matching the API response
 interface DiscordUser {
@@ -11,6 +12,8 @@ interface DiscordUser {
   avatarUrl: string;
   authorizedIp?: string;
   currentIp?: string;
+  banned?: boolean;
+  banReason?: string;
 }
 
 interface AuthContextType {
@@ -27,6 +30,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
+  const [location] = useLocation();
   
   // Fetch current user
   const { data, isLoading, refetch } = useQuery({
@@ -34,18 +38,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       const response = await fetch('/api/auth/me', {
         credentials: 'include',
+        cache: 'no-store', // Prevent browser caching
       });
       if (!response.ok) {
         throw new Error('Failed to fetch user');
       }
       return response.json();
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 30 * 1000, // 30 seconds (reduced from 5 minutes)
     retry: false,
   });
   
   const user = data?.authenticated ? data.user : null;
   const isAuthenticated = !!user;
+
+  // Refetch user status on route change to catch ban status immediately
+  useEffect(() => {
+    if (location !== '/banned') {
+      refetch();
+    }
+  }, [location, refetch]);
+
+  // Note: Ban status redirects are now handled by route guards in App.tsx
+  // This prevents components from loading before redirect
 
   // Update localStorage with authorized IP when user data is fetched
   useEffect(() => {

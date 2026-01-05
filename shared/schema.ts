@@ -153,6 +153,7 @@ export interface DiscordUser {
   ip?: string;             // Authorized IP address
   lastIpUpdate?: number;   // Timestamp of last IP update
   banned?: boolean;        // Whether the user is banned
+  banReason?: string;      // Reason for ban
 }
 
 export const insertDiscordUserSchema = z.object({
@@ -165,6 +166,7 @@ export const insertDiscordUserSchema = z.object({
   ip: z.string().optional(),
   lastIpUpdate: z.number().optional(),
   banned: z.boolean().optional(),
+  banReason: z.string().optional(),
 });
 
 export type InsertDiscordUser = z.infer<typeof insertDiscordUserSchema>;

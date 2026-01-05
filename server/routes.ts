@@ -508,6 +508,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // GET /api/auth/me - Get current authenticated user
   app.get("/api/auth/me", async (req: Request, res: Response) => {
+    // Prevent caching to ensure ban status is always fresh
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
     try {
       const session = await getSessionFromRequest(req);
       
@@ -562,6 +567,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator) % 5}.png`,
           authorizedIp: user.ip,
           currentIp: getClientIP(req),
+          banned: user.banned,
         },
       });
       
@@ -1792,7 +1798,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/users/:id/ban", adminAuth, async (req: Request, res: Response) => {
     try {
-      const user = await storage.banDiscordUser(req.params.id);
+      const { reason } = req.body;
+      const user = await storage.banDiscordUser(req.params.id, reason);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }

@@ -13,8 +13,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Ban, ShieldCheck, Wifi, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 interface DiscordUser {
   id: string;
@@ -29,11 +46,15 @@ interface DiscordUser {
   ip?: string;
   lastIpUpdate?: number;
   banned?: boolean;
+  banReason?: string;
 }
 
 export function AdminUserList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [banDialogOpen, setBanDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<DiscordUser | null>(null);
+  const [banReason, setBanReason] = useState("");
 
   const { data: users = [], isLoading } = useQuery<DiscordUser[]>({
     queryKey: ["admin", "users"],
@@ -41,9 +62,12 @@ export function AdminUserList() {
   });
 
   const banMutation = useMutation({
-    mutationFn: (userId: string) => api.banUser(userId),
+    mutationFn: ({ userId, reason }: { userId: string; reason?: string }) => api.banUser(userId, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      setBanDialogOpen(false);
+      setSelectedUser(null);
+      setBanReason("");
       toast({
         title: "User Banned",
         description: "The user has been successfully banned.",
@@ -57,6 +81,17 @@ export function AdminUserList() {
       });
     },
   });
+
+  const handleBanClick = (user: DiscordUser) => {
+    setSelectedUser(user);
+    setBanDialogOpen(true);
+  };
+
+  const handleBanConfirm = () => {
+    if (selectedUser) {
+      banMutation.mutate({ userId: selectedUser.id, reason: banReason || undefined });
+    }
+  };
 
   const unbanMutation = useMutation({
     mutationFn: (userId: string) => api.unbanUser(userId),
@@ -99,8 +134,9 @@ export function AdminUserList() {
   }
 
   return (
-    <Card className="p-0 overflow-hidden">
-      <Table>
+    <>
+      <Card className="p-0 overflow-hidden">
+        <Table>
         <TableHeader>
           <TableRow>
             <TableHead>User</TableHead>
@@ -151,9 +187,19 @@ export function AdminUserList() {
                 </TableCell>
                 <TableCell>
                   {user.banned ? (
-                    <Badge variant="destructive" className="flex w-fit items-center gap-1">
-                      <Ban className="h-3 w-3" /> Banned
-                    </Badge>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="destructive" className="flex w-fit items-center gap-1 cursor-help">
+                            <Ban className="h-3 w-3" /> Banned
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="font-semibold">Ban Reason:</p>
+                          <p>{user.banReason || "No reason provided"}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   ) : (
                     <Badge variant="default" className="flex w-fit items-center gap-1 bg-green-600 hover:bg-green-700">
                       <ShieldCheck className="h-3 w-3" /> Active
@@ -185,7 +231,7 @@ export function AdminUserList() {
                     <Button
                       variant="destructive"
                       size="sm"
-                      onClick={() => banMutation.mutate(user.id)}
+                      onClick={() => handleBanClick(user)}
                       disabled={banMutation.isPending}
                     >
                       Ban
@@ -196,7 +242,53 @@ export function AdminUserList() {
             ))
           )}
         </TableBody>
-      </Table>
-    </Card>
+        </Table>
+      </Card>
+
+      <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ban User</DialogTitle>
+            <DialogDescription>
+              You are about to ban {selectedUser?.globalName || selectedUser?.username}.
+              Please provide a reason for the ban.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="banReason">Ban Reason</Label>
+              <Input
+                id="banReason"
+                placeholder="Enter ban reason (optional)"
+                value={banReason}
+                onChange={(e) => setBanReason(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                If no reason is provided, the default reason "Dictatorship" will be used.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setBanDialogOpen(false);
+                setSelectedUser(null);
+                setBanReason("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBanConfirm}
+              disabled={banMutation.isPending}
+            >
+              {banMutation.isPending ? "Banning..." : "Ban User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
