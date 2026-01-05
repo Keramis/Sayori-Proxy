@@ -231,8 +231,12 @@ CREATE TABLE IF NOT EXISTS discord_users (
   created_at INTEGER NOT NULL,
   last_login_at INTEGER NOT NULL,
   ip TEXT,
-  last_ip_update INTEGER
+  last_ip_update INTEGER,
+  banned INTEGER DEFAULT 0,
+  ban_reason TEXT,
+  roles TEXT DEFAULT '["user"]'
 );
 
 -- Index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_discord_users_username ON discord_users(username);
+CREATE INDEX IF NOT EXISTS idx_discord_users_roles ON discord_users(roles);

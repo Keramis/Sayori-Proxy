@@ -176,13 +176,13 @@ export const api = {
       return res.json();
     }),
 
-  assignProviderOwner: (id: string, username: string) =>
+  assignProviderOwner: (id: string, userId: string) =>
     fetch(`/api/admin/providers/${id}/assign-owner`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ username }),
+      body: JSON.stringify({ userId }),
     }).then(async (res) => {
       if (!res.ok) {
         const error = await res.json();
@@ -451,6 +451,21 @@ export const api = {
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.error || "Failed to revoke user IP");
+      }
+      return res.json();
+    }),
+
+  updateUserRoles: (userId: string, roles: string[]) =>
+    fetch(`/api/admin/users/${userId}/roles`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ roles }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update user roles");
       }
       return res.json();
     }),

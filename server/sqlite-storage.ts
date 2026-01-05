@@ -77,6 +77,7 @@ export class SQLiteStorage implements IStorage {
       this.ensureUserTokenCreatorColumn();
       this.ensureDiscordUserIpColumns();
       this.ensureDiscordUserBannedColumn();
+      this.ensureDiscordUserRolesColumn();
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -133,6 +134,17 @@ export class SQLiteStorage implements IStorage {
     const hasBanReason = columns.some((column) => column.name === "ban_reason");
     if (!hasBanReason) {
       this.db.exec("ALTER TABLE discord_users ADD COLUMN ban_reason TEXT");
+    }
+  }
+
+  private ensureDiscordUserRolesColumn(): void {
+    const columns = this.db.prepare("PRAGMA table_info(discord_users)").all() as { name: string }[];
+    if (columns.length === 0) return;
+    const hasRoles = columns.some((column) => column.name === "roles");
+    if (!hasRoles) {
+      this.db.exec("ALTER TABLE discord_users ADD COLUMN roles TEXT DEFAULT '[\"user\"]'");
+      // Create index for roles column
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_discord_users_roles ON discord_users(roles)");
     }
   }
 
@@ -204,6 +216,18 @@ export class SQLiteStorage implements IStorage {
   }
 
   private rowToDiscordUser(row: any): DiscordUser {
+    let roles: string[] = ["user"];
+    if (row.roles) {
+      try {
+        roles = JSON.parse(row.roles);
+        if (!Array.isArray(roles)) {
+          roles = ["user"];
+        }
+      } catch {
+        roles = ["user"];
+      }
+    }
+    
     return {
       id: row.id,
       username: row.username,
@@ -217,6 +241,7 @@ export class SQLiteStorage implements IStorage {
       lastIpUpdate: row.last_ip_update ?? undefined,
       banned: Boolean(row.banned),
       banReason: row.ban_reason ?? undefined,
+      roles: roles,
     };
   }
 
@@ -1467,10 +1492,11 @@ export class SQLiteStorage implements IStorage {
   async createDiscordUser(user: InsertDiscordUser): Promise<DiscordUser> {
     try {
       const now = Date.now();
+      const roles = user.roles && user.roles.length > 0 ? JSON.stringify(user.roles) : '["user"]';
 
       const stmt = this.db.prepare(`
-        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at, ip, last_ip_update, banned, ban_reason)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at, ip, last_ip_update, banned, ban_reason, roles)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -1485,7 +1511,8 @@ export class SQLiteStorage implements IStorage {
         user.ip ?? null,
         user.lastIpUpdate ?? null,
         user.banned ? 1 : 0,
-        user.banReason ?? null
+        user.banReason ?? null,
+        roles
       );
 
       const result = await this.getDiscordUser(user.id);
@@ -1561,6 +1588,10 @@ export class SQLiteStorage implements IStorage {
       if (user.banReason !== undefined) {
         updates.push('ban_reason = ?');
         values.push(user.banReason);
+      }
+      if (user.roles !== undefined) {
+        updates.push('roles = ?');
+        values.push(JSON.stringify(user.roles));
       }
 
       // Always update lastLoginAt

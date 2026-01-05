@@ -14,6 +14,7 @@ interface DiscordUser {
   currentIp?: string;
   banned?: boolean;
   banReason?: string;
+  roles?: string[]; // User roles: ["user", "provider", "admin"]
 }
 
 interface AuthContextType {
@@ -23,7 +24,7 @@ interface AuthContextType {
   login: (returnTo?: string) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
-  updateIp: () => Promise<void>;
+  updateIp: (customIp?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -92,10 +93,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refetch();
   }, [refetch]);
 
-  const updateIp = useCallback(async () => {
+  const updateIp = useCallback(async (customIp?: string) => {
     const response = await fetch('/api/auth/update-ip', {
       method: 'POST',
       credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ip: customIp }),
     });
 
     const data = await response.json();

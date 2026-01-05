@@ -13,7 +13,12 @@ interface HeaderProps {
 
 export function Header({ hideProviderLogin = false }: HeaderProps) {
   const [, navigate] = useLocation();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
+
+  // Check user roles
+  const roles = user?.roles || ["user"];
+  const isProvider = roles.includes("provider");
+  const isAdmin = roles.includes("admin");
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -28,13 +33,26 @@ export function Header({ hideProviderLogin = false }: HeaderProps) {
         </button>
         
         <div className="flex items-center gap-3">
-          {!hideProviderLogin && (
-            <Button
-              variant="outline"
-              onClick={() => navigate("/provider")}
-            >
-              Provider Login
-            </Button>
+          {/* Show role-based dashboard links for authenticated users */}
+          {!hideProviderLogin && isAuthenticated && (
+            <>
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/admin")}
+                >
+                  Admin Dashboard
+                </Button>
+              )}
+              {isProvider && (
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/provider")}
+                >
+                  Provider Dashboard
+                </Button>
+              )}
+            </>
           )}
           
           {/* Discord Auth Section */}

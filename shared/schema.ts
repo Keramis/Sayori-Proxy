@@ -154,6 +154,7 @@ export interface DiscordUser {
   lastIpUpdate?: number;   // Timestamp of last IP update
   banned?: boolean;        // Whether the user is banned
   banReason?: string;      // Reason for ban
+  roles?: string[];        // User roles: ["user", "provider", "admin"]
 }
 
 export const insertDiscordUserSchema = z.object({
@@ -167,6 +168,7 @@ export const insertDiscordUserSchema = z.object({
   lastIpUpdate: z.number().optional(),
   banned: z.boolean().optional(),
   banReason: z.string().optional(),
+  roles: z.array(z.enum(["user", "provider", "admin"])).optional(),
 });
 
 export type InsertDiscordUser = z.infer<typeof insertDiscordUserSchema>;

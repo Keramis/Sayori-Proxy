@@ -12,7 +12,7 @@ import {
   insertUserTokenSchema,
 } from "@shared/schema";
 import { rateLimit } from 'express-rate-limit';
-import { checkStringValidity, countInputTokens, estimateTokens, getClientIP } from '../tools/utils';
+import { checkStringValidity, countInputTokens, estimateTokens, getClientIP, detectIPVersion } from '../tools/utils';
 import {
   buildAuthorizationUrl,
   exchangeCodeForTokens,
@@ -51,17 +51,7 @@ const adminApiRateLimit = rateLimit({
     res.status(options.statusCode).send(options.message);
   },
 });
-const providerLoginRateLimit = rateLimit({
-  windowMs: 60 * 1_000, //1min
-  limit: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: "Too many requests!",
-  handler: (req, res, next, options) => {
-    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
-    res.status(options.statusCode).send(options.message);
-  },
-});
+// Legacy provider login rate limit removed
 const subKeyRateLimit = rateLimit({
   windowMs: 5 * 1_000,
   max: 3,
@@ -150,7 +140,7 @@ setInterval(() => {
   });
 }, 60 * 1000); // Clean every minute
 
-// Middleware for admin authentication
+// Middleware for admin authentication (legacy - for username/password login)
 function adminAuth(req: Request, res: Response, next: Function) {
   if ((req.session as any).adminId) {
     return next();
@@ -158,33 +148,49 @@ function adminAuth(req: Request, res: Response, next: Function) {
   res.status(401).json({ error: "Unauthorized" });
 }
 
-const PROVIDER_SESSION_COOKIE = "provider.sid";
+// Unified role-based authentication middleware
+async function requireRole(role: 'admin' | 'provider') {
+  return async (req: Request, res: Response, next: Function) => {
+    try {
+      // Check for legacy admin session (Super Admin)
+      if (role === 'admin' && (req.session as any).adminId) {
+        (req as any).isSuperAdmin = true;
+        return next();
+      }
 
-function parseCookieHeader(header?: string): Record<string, string> {
-  if (!header) return {};
-  return header.split(";").reduce((acc, part) => {
-    const [key, ...valueParts] = part.trim().split("=");
-    if (!key) return acc;
-    acc[key] = decodeURIComponent(valueParts.join("="));
-    return acc;
-  }, {} as Record<string, string>);
+      // Check for Discord user session
+      const session = await getSessionFromRequest(req);
+      if (!session) {
+        return res.status(401).json({ error: "Unauthorized - Please login" });
+      }
+
+      const user = await storage.getDiscordUser(session.userId);
+      if (!user) {
+        return res.status(401).json({ error: "Unauthorized - User not found" });
+      }
+
+      if (user.banned) {
+        return res.status(403).json({ error: "Account banned" });
+      }
+
+      // Check if user has the required role
+      const userRoles = user.roles || ["user"];
+      if (!userRoles.includes(role)) {
+        return res.status(403).json({ error: `Forbidden - ${role} role required` });
+      }
+
+      // Attach user to request for downstream use
+      (req as any).discordUser = user;
+      (req as any).isSuperAdmin = false;
+      next();
+    } catch (error: any) {
+      console.error('Role auth error:', error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  };
 }
 
-function providerAuth(req: Request, res: Response, next: Function) {
-  const cookies = parseCookieHeader(req.headers.cookie);
-  const sessionToken = cookies[PROVIDER_SESSION_COOKIE];
-  if (!sessionToken) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  const providerAccount = providerAuthStorage.getProviderBySessionToken(sessionToken);
-  if (!providerAccount) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  (req as any).providerAccount = providerAccount;
-  next();
-}
+// Legacy provider auth code removed - now using Discord OAuth with roles
 
 // Middleware for user token authentication
 async function userTokenAuth(req: Request, res: Response, next: Function) {
@@ -568,6 +574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           authorizedIp: user.ip,
           currentIp: getClientIP(req),
           banned: user.banned,
+          roles: user.roles || ["user"],
         },
       });
       
@@ -598,15 +605,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const now = Date.now();
       const thirtyMinutes = 30 * 60 * 1000;
       
-      // Check cooldown
-      if (user.lastIpUpdate && (now - user.lastIpUpdate < thirtyMinutes)) {
+      // Check cooldown - skip if user has no IP set (allows immediate refresh after admin revokes IP)
+      if (user.ip && user.lastIpUpdate && (now - user.lastIpUpdate < thirtyMinutes)) {
         const remainingMinutes = Math.ceil((thirtyMinutes - (now - user.lastIpUpdate)) / 60000);
         return res.status(429).json({
           error: `You can only update your IP once every 30 minutes. Please wait ${remainingMinutes} minutes.`
         });
       }
       
-      const newIp = getClientIP(req);
+      // Get IP from request body or fallback to client IP
+      const { ip: customIp } = req.body;
+      let newIp: string;
+      
+      if (customIp) {
+        // Validate custom IP
+        const ipVersion = detectIPVersion(customIp);
+        if (ipVersion === 'unknown') {
+          return res.status(400).json({ error: "Invalid IP address format" });
+        }
+        newIp = customIp;
+      } else {
+        // Fallback to client's current IP
+        newIp = getClientIP(req);
+      }
       
       // Update IP
       const updatedUser = await storage.updateDiscordUser(user.id, {
@@ -685,49 +706,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Provider auth
-  app.get("/api/providers/me", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
-    res.json({ authenticated: true, username: providerAccount.username });
-  });
-
-  app.post("/api/providers/login", providerLoginRateLimit, async (req: Request, res: Response) => {
-    const { username, password } = req.body;
-
-    try {
-      const providerAccount = providerAuthStorage.getProviderByUsername(username);
-      if (!providerAccount) {
-        return res.status(401).json({ error: "Invalid credentials" });
-      }
-
-      const isValid = await bcrypt.compare(password, providerAccount.password);
-      if (!isValid) {
-        return res.status(401).json({ error: "Invalid credentials" });
-      }
-
-      const sessionToken = randomUUID();
-      providerAuthStorage.setProviderSession(providerAccount.id, sessionToken);
-
-      res.cookie(PROVIDER_SESSION_COOKIE, sessionToken, {
-        secure: process.env.NODE_ENV === "production",
-        httpOnly: true,
-        sameSite: "lax",
-        maxAge: 24 * 60 * 60 * 1000,
-      });
-
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Provider login error:", error);
-      res.status(500).json({ error: "Internal server error" });
-    }
-  });
-
-  app.post("/api/providers/logout", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
-    providerAuthStorage.clearProviderSession(providerAccount.id);
-    res.clearCookie(PROVIDER_SESSION_COOKIE);
-    res.json({ success: true });
-  });
+  // Legacy provider auth routes removed - now using Discord OAuth with roles
 
   // Get stats (public)
   app.get("/api/stats", async (req: Request, res: Response) => {
@@ -1229,9 +1208,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   // Provider routes (protected)
-  app.get("/api/providers", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
-    const providers = await getOwnedProviders(providerAccount.id);
+  app.get("/api/providers", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
+    const providers = await getOwnedProviders(discordUser.id);
     const providersWithCounts = await Promise.all(
       providers.map(async (provider) => {
         const keys = await storage.getApiKeys(provider.id);
@@ -1246,8 +1225,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(providersWithCounts);
   });
 
-  app.post("/api/providers", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     try {
       const data = insertProviderSchema.parse(req.body);
 
@@ -1256,21 +1235,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "A provider with this name already exists" });
       }
 
-      const provider = await storage.createProvider({ ...data, ownerId: providerAccount.id });
+      const provider = await storage.createProvider({ ...data, ownerId: discordUser.id });
       res.json(provider);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.patch("/api/providers/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.patch("/api/providers/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     try {
       const existingProvider = await storage.getProvider(req.params.id);
       if (!existingProvider) {
         return res.status(404).json({ error: "Provider not found" });
       }
-      if (existingProvider.ownerId !== providerAccount.id) {
+      if (existingProvider.ownerId !== discordUser.id) {
         return res.status(403).json({ error: "Unauthorized" });
       }
 
@@ -1298,13 +1277,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/providers/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.delete("/api/providers/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const provider = await storage.getProvider(req.params.id);
     if (!provider) {
       return res.status(404).json({ error: "Provider not found" });
     }
-    if (provider.ownerId !== providerAccount.id) {
+    if (provider.ownerId !== discordUser.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
     const success = await storage.deleteProvider(req.params.id);
@@ -1312,26 +1291,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Provider API Keys
-  app.get("/api/providers/:id/keys", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.get("/api/providers/:id/keys", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const provider = await storage.getProvider(req.params.id);
     if (!provider) {
       return res.status(404).json({ error: "Provider not found" });
     }
-    if (provider.ownerId !== providerAccount.id) {
+    if (provider.ownerId !== discordUser.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
     const keys = await storage.getApiKeys(req.params.id);
     res.json(keys);
   });
 
-  app.post("/api/providers/:id/keys", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers/:id/keys", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const provider = await storage.getProvider(req.params.id);
     if (!provider) {
       return res.status(404).json({ error: "Provider not found" });
     }
-    if (provider.ownerId !== providerAccount.id) {
+    if (provider.ownerId !== discordUser.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -1357,9 +1336,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/providers/keys/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
-    const ownedKey = await findOwnedApiKey(providerAccount.id, req.params.id);
+  app.delete("/api/providers/keys/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
+    const ownedKey = await findOwnedApiKey(discordUser.id, req.params.id);
     if (!ownedKey) {
       return res.status(404).json({ error: "API key not found" });
     }
@@ -1367,13 +1346,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success });
   });
 
-  app.patch("/api/providers/keys/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.patch("/api/providers/keys/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const { key } = req.body;
     if (!key) {
       return res.status(400).json({ error: "Key is required" });
     }
-    const ownedKey = await findOwnedApiKey(providerAccount.id, req.params.id);
+    const ownedKey = await findOwnedApiKey(discordUser.id, req.params.id);
     if (!ownedKey) {
       return res.status(404).json({ error: "API key not found" });
     }
@@ -1385,26 +1364,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Provider Models
-  app.get("/api/providers/:id/models", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.get("/api/providers/:id/models", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const provider = await storage.getProvider(req.params.id);
     if (!provider) {
       return res.status(404).json({ error: "Provider not found" });
     }
-    if (provider.ownerId !== providerAccount.id) {
+    if (provider.ownerId !== discordUser.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
     const models = await storage.getModels(req.params.id);
     res.json(models);
   });
 
-  app.post("/api/providers/:id/check-models", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers/:id/check-models", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const provider = await storage.getProvider(req.params.id);
     if (!provider) {
       return res.status(404).json({ error: "Provider not found" });
     }
-    if (provider.ownerId !== providerAccount.id) {
+    if (provider.ownerId !== discordUser.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -1420,9 +1399,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/providers/models/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
-    const ownedModel = await findOwnedModel(providerAccount.id, req.params.id);
+  app.patch("/api/providers/models/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
+    const ownedModel = await findOwnedModel(discordUser.id, req.params.id);
     if (!ownedModel) {
       return res.status(404).json({ error: "Model not found" });
     }
@@ -1433,9 +1412,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(model);
   });
 
-  app.delete("/api/providers/models/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
-    const ownedModel = await findOwnedModel(providerAccount.id, req.params.id);
+  app.delete("/api/providers/models/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
+    const ownedModel = await findOwnedModel(discordUser.id, req.params.id);
     if (!ownedModel) {
       return res.status(404).json({ error: "Model not found" });
     }
@@ -1443,13 +1422,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success });
   });
 
-  app.post("/api/providers/:id/models/update-cost-all", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers/:id/models/update-cost-all", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const provider = await storage.getProvider(req.params.id);
     if (!provider) {
       return res.status(404).json({ error: "Provider not found" });
     }
-    if (provider.ownerId !== providerAccount.id) {
+    if (provider.ownerId !== discordUser.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -1465,13 +1444,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/providers/:id/models/bulk", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.patch("/api/providers/:id/models/bulk", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const provider = await storage.getProvider(req.params.id);
     if (!provider) {
       return res.status(404).json({ error: "Provider not found" });
     }
-    if (provider.ownerId !== providerAccount.id) {
+    if (provider.ownerId !== discordUser.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -1540,10 +1519,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Provider user tokens
-  app.get("/api/providers/tokens", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.get("/api/providers/tokens", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const tokens = await storage.getUserTokens();
-    const ownedTokens = tokens.filter((token) => token.createdByProviderId === providerAccount.id);
+    const ownedTokens = tokens.filter((token) => token.createdByProviderId === discordUser.id);
     const tokensWithUsage = await Promise.all(
       ownedTokens.map(async (token) => {
         const todayUsage = await storage.getTodayUsageCount(token.id);
@@ -1556,15 +1535,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(tokensWithUsage);
   });
 
-  app.post("/api/providers/tokens", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers/tokens", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     try {
       const data = insertUserTokenSchema.parse(req.body);
       if (data.maxRPM > PROVIDER_MAX_RPM) {
         return res.status(400).json({ error: `Max RPM cannot exceed ${PROVIDER_MAX_RPM}` });
       }
 
-      const ownedProviderIds = await getOwnedProviderIds(providerAccount.id);
+      const ownedProviderIds = await getOwnedProviderIds(discordUser.id);
       if (ownedProviderIds.length === 0) {
         return res.status(400).json({ error: "No providers available for this account" });
       }
@@ -1583,7 +1562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...data,
         keyType: "master",
         allowedProviders,
-        createdByProviderId: providerAccount.id,
+        createdByProviderId: discordUser.id,
       });
       res.json(token);
     } catch (error: any) {
@@ -1591,11 +1570,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/providers/tokens/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.patch("/api/providers/tokens/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     try {
       const token = await storage.getUserTokenById(req.params.id);
-      if (!token || token.createdByProviderId !== providerAccount.id) {
+      if (!token || token.createdByProviderId !== discordUser.id) {
         return res.status(404).json({ error: "Token not found" });
       }
 
@@ -1605,7 +1584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let resolvedAllowedProviders = req.body.allowedProviders;
       if (resolvedAllowedProviders !== undefined) {
-        const ownedProviderIds = await getOwnedProviderIds(providerAccount.id);
+        const ownedProviderIds = await getOwnedProviderIds(discordUser.id);
         if (!Array.isArray(resolvedAllowedProviders) || resolvedAllowedProviders.length === 0) {
           resolvedAllowedProviders = ownedProviderIds;
         } else {
@@ -1637,20 +1616,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/providers/tokens/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.delete("/api/providers/tokens/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const token = await storage.getUserTokenById(req.params.id);
-    if (!token || token.createdByProviderId !== providerAccount.id) {
+    if (!token || token.createdByProviderId !== discordUser.id) {
       return res.status(404).json({ error: "Token not found" });
     }
     const success = await storage.deleteUserToken(req.params.id);
     res.json({ success });
   });
 
-  app.post("/api/providers/tokens/:id/regenerate", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers/tokens/:id/regenerate", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const token = await storage.getUserTokenById(req.params.id);
-    if (!token || token.createdByProviderId !== providerAccount.id) {
+    if (!token || token.createdByProviderId !== discordUser.id) {
       return res.status(404).json({ error: "Token not found" });
     }
 
@@ -1665,8 +1644,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/providers/tokens/:id/sub-keys", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers/tokens/:id/sub-keys", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const { name, maxRPD, maxRPM, allowedProviders, expiresAt } = req.body;
 
     if (!name || (!(checkStringValidity(name).valid)) || name.length > 50) {
@@ -1674,7 +1653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const parentToken = await storage.getUserTokenById(req.params.id);
-    if (!parentToken || parentToken.createdByProviderId !== providerAccount.id) {
+    if (!parentToken || parentToken.createdByProviderId !== discordUser.id) {
       return res.status(404).json({ error: "Parent token not found" });
     }
 
@@ -1696,7 +1675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     let parentAllowed = parentToken.allowedProviders || [];
     if (parentAllowed.length === 0) {
-      parentAllowed = await getOwnedProviderIds(providerAccount.id);
+      parentAllowed = await getOwnedProviderIds(discordUser.id);
     }
     let resolvedAllowed = allowedProviders;
     if (resolvedAllowed && resolvedAllowed.length > 0) {
@@ -1717,7 +1696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         parentTokenId: parentToken.id,
         keyType: "sub",
         expiresAt,
-        createdByProviderId: providerAccount.id,
+        createdByProviderId: discordUser.id,
       });
 
       res.json(subKey);
@@ -1726,10 +1705,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/providers/sub-keys/:id", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.delete("/api/providers/sub-keys/:id", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const subKey = await storage.getUserTokenById(req.params.id);
-    if (!subKey || subKey.createdByProviderId !== providerAccount.id) {
+    if (!subKey || subKey.createdByProviderId !== discordUser.id) {
       return res.status(404).json({ error: "Sub-key not found" });
     }
 
@@ -1742,10 +1721,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/providers/sub-keys/:id/disable", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers/sub-keys/:id/disable", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const subKey = await storage.getUserTokenById(req.params.id);
-    if (!subKey || subKey.createdByProviderId !== providerAccount.id) {
+    if (!subKey || subKey.createdByProviderId !== discordUser.id) {
       return res.status(404).json({ error: "Sub-key not found" });
     }
 
@@ -1758,10 +1737,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/providers/sub-keys/:id/enable", providerAuth, async (req: Request, res: Response) => {
-    const providerAccount = (req as any).providerAccount;
+  app.post("/api/providers/sub-keys/:id/enable", await requireRole('provider'), async (req: Request, res: Response) => {
+    const discordUser = (req as any).discordUser;
     const subKey = await storage.getUserTokenById(req.params.id);
-    if (!subKey || subKey.createdByProviderId !== providerAccount.id) {
+    if (!subKey || subKey.createdByProviderId !== discordUser.id) {
       return res.status(404).json({ error: "Sub-key not found" });
     }
 
@@ -1781,7 +1760,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin routes (protected)
 
   // Discord Users
-  app.get("/api/admin/users", adminAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/users", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const users = await storage.getDiscordUsers();
       const usersWithAvatar = users.map((user) => ({
@@ -1796,7 +1775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/users/:id/ban", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/users/:id/ban", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const { reason } = req.body;
       const user = await storage.banDiscordUser(req.params.id, reason);
@@ -1809,7 +1788,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/users/:id/unban", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/users/:id/unban", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const user = await storage.unbanDiscordUser(req.params.id);
       if (!user) {
@@ -1821,9 +1800,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/users/:id/revoke-ip", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/users/:id/revoke-ip", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
-      const user = await storage.updateDiscordUser(req.params.id, { ip: null as any });
+      const user = await storage.updateDiscordUser(req.params.id, {
+        ip: null as any,
+        lastIpUpdate: null as any
+      });
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -1833,8 +1815,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user roles - Super Admin can manage all roles, Discord Admins can only manage provider role
+  app.post("/api/admin/users/:id/roles", adminApiRateLimit, async (req: Request, res: Response) => {
+    try {
+      const { roles } = req.body;
+      
+      if (!Array.isArray(roles)) {
+        return res.status(400).json({ error: "Roles must be an array" });
+      }
+
+      // Validate roles
+      const validRoles = ["user", "provider", "admin"];
+      const invalidRoles = roles.filter(r => !validRoles.includes(r));
+      if (invalidRoles.length > 0) {
+        return res.status(400).json({ error: `Invalid roles: ${invalidRoles.join(", ")}` });
+      }
+
+      // Check authentication
+      const isSuperAdmin = !!(req.session as any).adminId;
+      const session = await getSessionFromRequest(req);
+      let isDiscordAdmin = false;
+      
+      if (session) {
+        const adminUser = await storage.getDiscordUser(session.userId);
+        isDiscordAdmin = adminUser?.roles?.includes("admin") || false;
+      }
+
+      if (!isSuperAdmin && !isDiscordAdmin) {
+        return res.status(401).json({ error: "Unauthorized - Admin access required" });
+      }
+
+      // Only Super Admin can manage admin role
+      if (roles.includes("admin") && !isSuperAdmin) {
+        return res.status(403).json({ error: "Forbidden - Only Super Admin can assign admin role" });
+      }
+
+      // Prevent removing admin role from Super Admin's own account
+      if (isSuperAdmin && session) {
+        const targetUser = await storage.getDiscordUser(req.params.id);
+        if (targetUser?.id === session.userId && !roles.includes("admin")) {
+          return res.status(400).json({ error: "Cannot remove admin role from your own account" });
+        }
+      }
+
+      const user = await storage.updateDiscordUser(req.params.id, { roles });
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({ success: true, user });
+    } catch (error: any) {
+      console.error("Error updating user roles:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Provider accounts
-  app.get("/api/admin/provider-accounts", adminAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/provider-accounts", await requireRole('admin'), async (req: Request, res: Response) => {
     const accounts = providerAuthStorage.getProviderAccounts().map((account) => ({
       id: account.id,
       username: account.username,
@@ -1844,7 +1881,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(accounts);
   });
 
-  app.post("/api/admin/provider-accounts", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/provider-accounts", await requireRole('admin'), async (req: Request, res: Response) => {
     const { username, password } = req.body;
 
     if (!username || !password) {
@@ -1875,7 +1912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/provider-accounts/:id", adminAuth, async (req: Request, res: Response) => {
+  app.patch("/api/admin/provider-accounts/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     const { username, password, clearSession } = req.body;
 
     try {
@@ -1929,7 +1966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/provider-accounts/:id", adminAuth, async (req: Request, res: Response) => {
+  app.delete("/api/admin/provider-accounts/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     const existing = providerAuthStorage.getProviderById(req.params.id);
     if (!existing) {
       return res.status(404).json({ error: "Provider account not found" });
@@ -1946,29 +1983,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Providers
-  app.get("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/providers", await requireRole('admin'), async (req: Request, res: Response) => {
     const providers = await storage.getProviders();
     const providersWithCounts = await Promise.all(
       providers.map(async (provider) => {
         const keys = await storage.getApiKeys(provider.id);
         const models = await storage.getModels(provider.id);
-        const owner = provider.ownerId ? providerAuthStorage.getProviderById(provider.ownerId) : undefined;
+        
+        // Get Discord user owner details
+        let ownerInfo = null;
+        if (provider.ownerId) {
+          const discordOwner = await storage.getDiscordUser(provider.ownerId);
+          if (discordOwner) {
+            ownerInfo = {
+              id: discordOwner.id,
+              username: discordOwner.username,
+              globalName: discordOwner.globalName,
+              avatarUrl: discordOwner.avatar
+                ? `https://cdn.discordapp.com/avatars/${discordOwner.id}/${discordOwner.avatar}.png`
+                : `https://cdn.discordapp.com/embed/avatars/${parseInt(discordOwner.discriminator) % 5}.png`,
+            };
+          }
+        }
+        
         return {
           ...provider,
           keysCount: keys.length,
           modelsCount: models.length,
-          ownerUsername: owner?.username,
+          ownerInfo,
+          ownerUsername: ownerInfo ? (ownerInfo.globalName || ownerInfo.username) : "Unassigned",
         };
       })
     );
     res.json(providersWithCounts);
   });
 
-  app.post("/api/admin/providers/:id/assign-owner", adminAuth, async (req: Request, res: Response) => {
-    const { username } = req.body;
+  app.post("/api/admin/providers/:id/assign-owner", await requireRole('admin'), async (req: Request, res: Response) => {
+    const { userId } = req.body;
 
-    if (!username) {
-      return res.status(400).json({ error: "Username is required" });
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
     }
 
     const provider = await storage.getProvider(req.params.id);
@@ -1976,24 +2030,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(404).json({ error: "Provider not found" });
     }
 
-    const normalizedUsername = String(username).trim();
-    if (!normalizedUsername) {
-      return res.status(400).json({ error: "Username is required" });
+    const normalizedUserId = String(userId).trim();
+    if (!normalizedUserId) {
+      return res.status(400).json({ error: "User ID is required" });
     }
 
-    const account = providerAuthStorage.getProviderByUsername(normalizedUsername);
-    if (!account) {
-      return res.status(404).json({ error: "Provider account not found" });
+    // Verify Discord user exists
+    const discordUser = await storage.getDiscordUser(normalizedUserId);
+    if (!discordUser) {
+      return res.status(404).json({ error: "Discord user not found" });
     }
 
     const previousOwnerId = provider.ownerId;
-    const updatedProvider = await storage.updateProvider(req.params.id, { ownerId: account.id });
+    const updatedProvider = await storage.updateProvider(req.params.id, { ownerId: discordUser.id });
     if (!updatedProvider) {
       return res.status(404).json({ error: "Provider not found" });
     }
 
     let deletedTokens = 0;
-    if (previousOwnerId !== account.id) {
+    if (previousOwnerId !== discordUser.id) {
       const tokens = await storage.getUserTokens();
       const tokensToDelete = tokens.filter((token) => {
         const allowed = token.allowedProviders;
@@ -2016,12 +2071,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       deletedTokens,
       provider: {
         ...updatedProvider,
-        ownerUsername: account.username,
+        ownerInfo: {
+          id: discordUser.id,
+          username: discordUser.username,
+          globalName: discordUser.globalName,
+          avatarUrl: discordUser.avatar
+            ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
+            : `https://cdn.discordapp.com/embed/avatars/${parseInt(discordUser.discriminator) % 5}.png`,
+        },
+        ownerUsername: discordUser.globalName || discordUser.username,
       },
     });
   });
 
-  app.post("/api/admin/providers", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/providers", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const data = insertProviderSchema.parse(req.body);
 
@@ -2040,7 +2103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/providers/:id", adminAuth, async (req: Request, res: Response) => {
+  app.patch("/api/admin/providers/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       // Check for duplicate provider name if name is being updated
       if (req.body.name) {
@@ -2060,18 +2123,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/providers/:id", adminAuth, async (req: Request, res: Response) => {
+  app.delete("/api/admin/providers/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     const success = await storage.deleteProvider(req.params.id);
     res.json({ success });
   });
 
   // API Keys
-  app.get("/api/admin/providers/:id/keys", adminAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/providers/:id/keys", await requireRole('admin'), async (req: Request, res: Response) => {
     const keys = await storage.getApiKeys(req.params.id);
     res.json(keys);
   });
 
-  app.post("/api/admin/providers/:id/keys", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/providers/:id/keys", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const data = insertApiKeySchema.parse({
         ...req.body,
@@ -2095,12 +2158,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/keys/:id", adminAuth, async (req: Request, res: Response) => {
+  app.delete("/api/admin/keys/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     const success = await storage.deleteApiKey(req.params.id);
     res.json({ success });
   });
 
-  app.patch("/api/admin/keys/:id", adminAuth, async (req: Request, res: Response) => {
+  app.patch("/api/admin/keys/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     const { key } = req.body;
     if (!key) {
       return res.status(400).json({ error: "Key is required" });
@@ -2113,12 +2176,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Models
-  app.get("/api/admin/providers/:id/models", adminAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/providers/:id/models", await requireRole('admin'), async (req: Request, res: Response) => {
     const models = await storage.getModels(req.params.id);
     res.json(models);
   });
 
-  app.post("/api/admin/providers/:id/check-models", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/providers/:id/check-models", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const result = await syncProviderModels(req.params.id);
       res.json(result);
@@ -2137,7 +2200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/models/:id", adminAuth, async (req: Request, res: Response) => {
+  app.patch("/api/admin/models/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     const model = await storage.updateModel(req.params.id, req.body);
     if (!model) {
       return res.status(404).json({ error: "Model not found" });
@@ -2145,13 +2208,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(model);
   });
 
-  app.delete("/api/admin/models/:id", adminAuth, async (req: Request, res: Response) => {
+  app.delete("/api/admin/models/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     const success = await storage.deleteModel(req.params.id);
     res.json({ success });
   });
 
   // Bulk model operations
-  app.post("/api/admin/providers/:id/models/update-cost-all", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/providers/:id/models/update-cost-all", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const { requestCost } = req.body;
       if (!requestCost || requestCost < 1) {
@@ -2165,7 +2228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk model updates - accepts array of model updates
-  app.patch("/api/admin/providers/:id/models/bulk", adminAuth, async (req: Request, res: Response) => {
+  app.patch("/api/admin/providers/:id/models/bulk", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const { updates } = req.body;
       
@@ -2228,7 +2291,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User Tokens
-  app.get("/api/admin/tokens", adminAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/tokens", await requireRole('admin'), async (req: Request, res: Response) => {
     const tokens = await storage.getUserTokens();
     const tokensWithUsage = await Promise.all(
       tokens.map(async (token) => {
@@ -2242,7 +2305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(tokensWithUsage);
   });
 
-  app.post("/api/admin/tokens", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/tokens", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const data = insertUserTokenSchema.parse(req.body);
       const token = await storage.createUserToken(data);
@@ -2252,7 +2315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/tokens/:id", adminAuth, async (req: Request, res: Response) => {
+  app.patch("/api/admin/tokens/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const token = await storage.updateUserToken(req.params.id, req.body);
       if (!token) {
@@ -2264,12 +2327,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/tokens/:id", adminAuth, async (req: Request, res: Response) => {
+  app.delete("/api/admin/tokens/:id", await requireRole('admin'), async (req: Request, res: Response) => {
     const success = await storage.deleteUserToken(req.params.id);
     res.json({ success });
   });
 
-  app.post("/api/admin/tokens/:id/regenerate", adminAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/tokens/:id/regenerate", await requireRole('admin'), async (req: Request, res: Response) => {
     try {
       const token = await storage.regenerateUserToken(req.params.id);
       if (!token) {
@@ -2345,16 +2408,193 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/v1/chat/completions", chatCompletionsRateLimit, flexibleAuth, async (req: Request, res: Response) => {
     // Check IP Authorization
     const clientIp = getClientIP(req);
+    const isStreaming = req.body.stream === true;
+    
     try {
       const isAuthorized = await storage.isIpAuthorized(clientIp);
       if (!isAuthorized) {
-        // Return 403 Forbidden with no body as per requirements
-        return res.sendStatus(403);
+        console.error(`IP authorization failed for ${clientIp} on route: ${req.originalUrl}`);
+        
+        const deniedMessage = `# Your request was denied!
+Your IP address is not whitelisted on our platform.
+
+![Hanging](https://static.wikia.nocookie.net/doki-doki-literature-club/images/2/2d/Sayori_Hanging_%28s_kill%29.png/revision/latest?cb=20171117231739)
+
+If you're an authorized user, update your IP on the platform.
+
+The IP received for this request was: \`${clientIp}\`
+
+-------------
+
+Make sure to delete or reroll this message.`;
+
+        const completionId = `chatcmpl-${randomUUID().split('-')[0]}`;
+        const timestamp = Math.floor(Date.now() / 1000);
+        const model = req.body.model || "unknown";
+
+        // Handle streaming response
+        if (isStreaming) {
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+          
+          // Send initial chunk with role
+          const initialChunk = {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: timestamp,
+            model: model,
+            choices: [{
+              index: 0,
+              delta: { role: "assistant", content: "" },
+              finish_reason: null
+            }]
+          };
+          res.write(`data: ${JSON.stringify(initialChunk)}\n\n`);
+          
+          // Send content chunk
+          const contentChunk = {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: timestamp,
+            model: model,
+            choices: [{
+              index: 0,
+              delta: { content: deniedMessage },
+              finish_reason: null
+            }]
+          };
+          res.write(`data: ${JSON.stringify(contentChunk)}\n\n`);
+          
+          // Send final chunk
+          const finalChunk = {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: timestamp,
+            model: model,
+            choices: [{
+              index: 0,
+              delta: {},
+              finish_reason: "stop"
+            }]
+          };
+          res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+          
+          // Send [DONE] marker
+          res.write('data: [DONE]\n\n');
+          return res.end();
+        }
+        
+        // Handle non-streaming response
+        return res.status(200).json({
+          id: completionId,
+          object: "chat.completion",
+          created: timestamp,
+          model: model,
+          choices: [{
+            index: 0,
+            message: {
+              role: "assistant",
+              content: deniedMessage,
+              refusal: null
+            },
+            finish_reason: "stop",
+            logprobs: null
+          }],
+          usage: {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0
+          }
+        });
       }
     } catch (error) {
       console.error("Error checking IP authorization:", error);
-      // Fail open or closed? Closed for security.
-      return res.sendStatus(403);
+      
+      const errorMessage = `# Your request was denied!
+Your IP address is not whitelisted on our platform.
+
+If you're an authorized user, update your IP on the platform.
+
+The IP received for this request was: ${clientIp}
+
+-# Make sure to delete or reroll this message.`;
+
+      const completionId = `chatcmpl-${randomUUID().split('-')[0]}`;
+      const timestamp = Math.floor(Date.now() / 1000);
+      const model = req.body.model || "unknown";
+
+      // Handle streaming response for errors
+      if (isStreaming) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        
+        const initialChunk = {
+          id: completionId,
+          object: "chat.completion.chunk",
+          created: timestamp,
+          model: model,
+          choices: [{
+            index: 0,
+            delta: { role: "assistant", content: "" },
+            finish_reason: null
+          }]
+        };
+        res.write(`data: ${JSON.stringify(initialChunk)}\n\n`);
+        
+        const contentChunk = {
+          id: completionId,
+          object: "chat.completion.chunk",
+          created: timestamp,
+          model: model,
+          choices: [{
+            index: 0,
+            delta: { content: errorMessage },
+            finish_reason: null
+          }]
+        };
+        res.write(`data: ${JSON.stringify(contentChunk)}\n\n`);
+        
+        const finalChunk = {
+          id: completionId,
+          object: "chat.completion.chunk",
+          created: timestamp,
+          model: model,
+          choices: [{
+            index: 0,
+            delta: {},
+            finish_reason: "stop"
+          }]
+        };
+        res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+        
+        res.write('data: [DONE]\n\n');
+        return res.end();
+      }
+
+      // Handle non-streaming response for errors
+      return res.status(403).json({
+        id: completionId,
+        object: "chat.completion",
+        created: timestamp,
+        model: model,
+        choices: [{
+          index: 0,
+          message: {
+            role: "assistant",
+            content: errorMessage,
+            refusal: null
+          },
+          finish_reason: "stop",
+          logprobs: null
+        }],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        }
+      });
     }
 
     let responseSent = false;

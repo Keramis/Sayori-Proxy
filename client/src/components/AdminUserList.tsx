@@ -29,9 +29,10 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Ban, ShieldCheck, Wifi, WifiOff } from "lucide-react";
+import { Ban, ShieldCheck, Wifi, WifiOff, Shield, Briefcase, UserCog } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface DiscordUser {
   id: string;
@@ -47,14 +48,17 @@ interface DiscordUser {
   lastIpUpdate?: number;
   banned?: boolean;
   banReason?: string;
+  roles?: string[];
 }
 
 export function AdminUserList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [banDialogOpen, setBanDialogOpen] = useState(false);
+  const [rolesDialogOpen, setRolesDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<DiscordUser | null>(null);
   const [banReason, setBanReason] = useState("");
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
 
   const { data: users = [], isLoading } = useQuery<DiscordUser[]>({
     queryKey: ["admin", "users"],
@@ -129,6 +133,51 @@ export function AdminUserList() {
     },
   });
 
+  const updateRolesMutation = useMutation({
+    mutationFn: ({ userId, roles }: { userId: string; roles: string[] }) => api.updateUserRoles(userId, roles),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      setRolesDialogOpen(false);
+      setSelectedUser(null);
+      setSelectedRoles([]);
+      toast({
+        title: "Roles Updated",
+        description: "User roles have been successfully updated.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update user roles",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleRolesClick = (user: DiscordUser) => {
+    setSelectedUser(user);
+    setSelectedRoles(user.roles || ["user"]);
+    setRolesDialogOpen(true);
+  };
+
+  const handleRolesConfirm = () => {
+    if (selectedUser) {
+      updateRolesMutation.mutate({ userId: selectedUser.id, roles: selectedRoles });
+    }
+  };
+
+  const toggleRole = (role: string) => {
+    setSelectedRoles(prev => {
+      if (prev.includes(role)) {
+        // Always keep at least "user" role
+        if (role === "user" && prev.length === 1) return prev;
+        return prev.filter(r => r !== role);
+      } else {
+        return [...prev, role];
+      }
+    });
+  };
+
   if (isLoading) {
     return <div className="text-muted-foreground">Loading users...</div>;
   }
@@ -141,6 +190,7 @@ export function AdminUserList() {
           <TableRow>
             <TableHead>User</TableHead>
             <TableHead>Discord ID</TableHead>
+            <TableHead>Roles</TableHead>
             <TableHead>Authorized IP</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -172,6 +222,21 @@ export function AdminUserList() {
                   </div>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{user.id}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {(user.roles || ["user"]).map(role => (
+                      <Badge
+                        key={role}
+                        variant={role === "admin" ? "destructive" : role === "provider" ? "default" : "secondary"}
+                        className="text-xs"
+                      >
+                        {role === "admin" && <Shield className="h-3 w-3 mr-1" />}
+                        {role === "provider" && <Briefcase className="h-3 w-3 mr-1" />}
+                        {role}
+                      </Badge>
+                    ))}
+                  </div>
+                </TableCell>
                 <TableCell>
                   {user.ip ? (
                     <div className="flex items-center gap-2">
@@ -207,6 +272,17 @@ export function AdminUserList() {
                   )}
                 </TableCell>
                 <TableCell className="text-right space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRolesClick(user)}
+                    disabled={updateRolesMutation.isPending}
+                    title="Manage Roles"
+                    className="align-middle"
+                  >
+                    <UserCog className="h-4 w-4" />
+                    Roles
+                  </Button>
                   {user.ip && (
                     <Button
                       variant="outline"
@@ -214,6 +290,7 @@ export function AdminUserList() {
                       onClick={() => revokeIpMutation.mutate(user.id)}
                       disabled={revokeIpMutation.isPending}
                       title="Revoke IP"
+                      className="align-middle"
                     >
                       Revoke IP
                     </Button>
@@ -224,6 +301,7 @@ export function AdminUserList() {
                       size="sm"
                       onClick={() => unbanMutation.mutate(user.id)}
                       disabled={unbanMutation.isPending}
+                      className="align-middle"
                     >
                       Unban
                     </Button>
@@ -233,6 +311,7 @@ export function AdminUserList() {
                       size="sm"
                       onClick={() => handleBanClick(user)}
                       disabled={banMutation.isPending}
+                      className="align-middle"
                     >
                       Ban
                     </Button>
@@ -285,6 +364,85 @@ export function AdminUserList() {
               disabled={banMutation.isPending}
             >
               {banMutation.isPending ? "Banning..." : "Ban User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rolesDialogOpen} onOpenChange={setRolesDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manage User Roles</DialogTitle>
+            <DialogDescription>
+              Update roles for {selectedUser?.globalName || selectedUser?.username}.
+              Note: Only Super Admin (password login) can assign the admin role.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="role-user"
+                  checked={selectedRoles.includes("user")}
+                  onCheckedChange={() => toggleRole("user")}
+                  disabled={selectedRoles.length === 1 && selectedRoles.includes("user")}
+                />
+                <label
+                  htmlFor="role-user"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  User (Default)
+                </label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="role-provider"
+                  checked={selectedRoles.includes("provider")}
+                  onCheckedChange={() => toggleRole("provider")}
+                />
+                <label
+                  htmlFor="role-provider"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-1"
+                >
+                  <Briefcase className="h-4 w-4" />
+                  Provider
+                </label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="role-admin"
+                  checked={selectedRoles.includes("admin")}
+                  onCheckedChange={() => toggleRole("admin")}
+                />
+                <label
+                  htmlFor="role-admin"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-1"
+                >
+                  <Shield className="h-4 w-4" />
+                  Admin (Super Admin only)
+                </label>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Users must have at least the "user" role. Providers can manage their own providers and tokens. Admins have full access except promoting users to admin.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRolesDialogOpen(false);
+                setSelectedUser(null);
+                setSelectedRoles([]);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRolesConfirm}
+              disabled={updateRolesMutation.isPending || selectedRoles.length === 0}
+            >
+              {updateRolesMutation.isPending ? "Updating..." : "Update Roles"}
             </Button>
           </DialogFooter>
         </DialogContent>

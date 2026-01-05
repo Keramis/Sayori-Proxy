@@ -15,22 +15,33 @@ import { Shield } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Admin() {
   const { toast } = useToast();
+  const { user, isLoading: authLoading } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isDiscordAdmin, setIsDiscordAdmin] = useState(false);
   const [activeTab, setActiveTab] = useState("providers");
-  // authToken removed as we use session cookies now
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // Check if user is authenticated via Discord OAuth with admin role
+    if (user && user.roles?.includes("admin")) {
+      setIsAuthenticated(true);
+      setIsDiscordAdmin(true);
+      return;
+    }
+
+    // Otherwise, check for legacy admin session
+    setIsDiscordAdmin(false);
     api.checkAuth()
       .then(() => setIsAuthenticated(true))
       .catch(() => setIsAuthenticated(false));
-  }, []);
+  }, [user]);
 
   const handleLogout = async () => {
     try {
@@ -69,6 +80,11 @@ export default function Admin() {
       setLoading(false);
     }
   };
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return (
@@ -143,7 +159,9 @@ export default function Admin() {
               Manage providers, user tokens, and system settings
             </p>
           </div>
-          <Button variant="outline" onClick={handleLogout}>Logout</Button>
+          {!isDiscordAdmin && (
+            <Button variant="outline" onClick={handleLogout}>Logout</Button>
+          )}
         </div>
 
         <div className="space-y-6">
