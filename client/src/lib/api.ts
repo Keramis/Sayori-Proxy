@@ -411,6 +411,46 @@ export const api = {
       return res.json();
     }),
 
+  // Admin - Users
+  getDiscordUsers: () =>
+    fetch("/api/admin/users").then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch users");
+      return res.json();
+    }),
+
+  banUser: (userId: string) =>
+    fetch(`/api/admin/users/${userId}/ban`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to ban user");
+      }
+      return res.json();
+    }),
+
+  unbanUser: (userId: string) =>
+    fetch(`/api/admin/users/${userId}/unban`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to unban user");
+      }
+      return res.json();
+    }),
+
+  revokeUserIp: (userId: string) =>
+    fetch(`/api/admin/users/${userId}/revoke-ip`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to revoke user IP");
+      }
+      return res.json();
+    }),
+
   // Provider auth
   providerLogin: (username: string, password: string) =>
     fetch("/api/providers/login", {

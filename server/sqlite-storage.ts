@@ -76,6 +76,7 @@ export class SQLiteStorage implements IStorage {
       this.ensureProviderOwnerColumn();
       this.ensureUserTokenCreatorColumn();
       this.ensureDiscordUserIpColumns();
+      this.ensureDiscordUserBannedColumn();
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -119,6 +120,15 @@ export class SQLiteStorage implements IStorage {
     const hasLastIpUpdate = columns.some((column) => column.name === "last_ip_update");
     if (!hasLastIpUpdate) {
       this.db.exec("ALTER TABLE discord_users ADD COLUMN last_ip_update INTEGER");
+    }
+  }
+
+  private ensureDiscordUserBannedColumn(): void {
+    const columns = this.db.prepare("PRAGMA table_info(discord_users)").all() as { name: string }[];
+    if (columns.length === 0) return;
+    const hasBanned = columns.some((column) => column.name === "banned");
+    if (!hasBanned) {
+      this.db.exec("ALTER TABLE discord_users ADD COLUMN banned INTEGER DEFAULT 0");
     }
   }
 
@@ -201,6 +211,7 @@ export class SQLiteStorage implements IStorage {
       lastLoginAt: row.last_login_at,
       ip: row.ip ?? undefined,
       lastIpUpdate: row.last_ip_update ?? undefined,
+      banned: Boolean(row.banned),
     };
   }
 
@@ -1437,13 +1448,24 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
+  async getDiscordUsers(): Promise<DiscordUser[]> {
+    try {
+      const stmt = this.db.prepare('SELECT * FROM discord_users ORDER BY last_login_at DESC');
+      const rows = stmt.all();
+      return rows.map(this.rowToDiscordUser);
+    } catch (error) {
+      console.error('Error getting Discord users:', error);
+      throw error;
+    }
+  }
+
   async createDiscordUser(user: InsertDiscordUser): Promise<DiscordUser> {
     try {
       const now = Date.now();
 
       const stmt = this.db.prepare(`
-        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at, ip, last_ip_update)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO discord_users (id, username, discriminator, global_name, email, avatar, created_at, last_login_at, ip, last_ip_update, banned)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -1456,7 +1478,8 @@ export class SQLiteStorage implements IStorage {
         now,
         now,
         user.ip ?? null,
-        user.lastIpUpdate ?? null
+        user.lastIpUpdate ?? null,
+        user.banned ? 1 : 0
       );
 
       const result = await this.getDiscordUser(user.id);
@@ -1472,13 +1495,21 @@ export class SQLiteStorage implements IStorage {
 
   async isIpAuthorized(ip: string): Promise<boolean> {
     try {
-      const stmt = this.db.prepare('SELECT 1 FROM discord_users WHERE ip = ?');
+      const stmt = this.db.prepare('SELECT 1 FROM discord_users WHERE ip = ? AND banned = 0');
       const row = stmt.get(ip);
       return !!row;
     } catch (error) {
       console.error('Error checking authorized IP:', error);
       throw error;
     }
+  }
+
+  async banDiscordUser(id: string): Promise<DiscordUser | undefined> {
+    return this.updateDiscordUser(id, { banned: true });
+  }
+
+  async unbanDiscordUser(id: string): Promise<DiscordUser | undefined> {
+    return this.updateDiscordUser(id, { banned: false });
   }
 
   async updateDiscordUser(id: string, user: Partial<InsertDiscordUser>): Promise<DiscordUser | undefined> {
@@ -1516,6 +1547,10 @@ export class SQLiteStorage implements IStorage {
       if (user.lastIpUpdate !== undefined) {
         updates.push('last_ip_update = ?');
         values.push(user.lastIpUpdate);
+      }
+      if (user.banned !== undefined) {
+        updates.push('banned = ?');
+        values.push(user.banned ? 1 : 0);
       }
 
       // Always update lastLoginAt

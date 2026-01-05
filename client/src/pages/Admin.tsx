@@ -6,6 +6,7 @@ import { AdminUserTokenForm } from "@/components/AdminUserTokenForm";
 import { AdminUserTokenList } from "@/components/AdminUserTokenList";
 import { AdminProviderAccountForm } from "@/components/AdminProviderAccountForm";
 import { AdminProviderAccountList } from "@/components/AdminProviderAccountList";
+import { AdminUserList } from "@/components/AdminUserList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -183,6 +184,18 @@ export default function Admin() {
             >
               User Providers
             </button>
+            <button
+              onClick={() => setActiveTab("users")}
+              className={cn(
+                "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
+                activeTab === "users"
+                  ? "bg-background text-foreground shadow"
+                  : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
+              )}
+              data-testid="tab-users"
+            >
+              Users
+            </button>
           </div>
 
           {activeTab === "providers" && (
@@ -229,6 +242,15 @@ export default function Admin() {
               <div>
                 <h2 className="text-xl font-semibold mb-4">Existing Provider Accounts</h2>
                 <AdminProviderAccountList />
+              </div>
+            </div>
+          )}
+
+          {activeTab === "users" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Discord Users</h2>
+                <AdminUserList />
               </div>
             </div>
           )}

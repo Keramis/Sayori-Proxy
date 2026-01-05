@@ -450,6 +450,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       let user = await storage.getDiscordUser(discordUser.id);
       if (user) {
+        if (user.banned) {
+          return res.redirect("/?error=account_banned");
+        }
+
         // Update existing user
         // Only update IP if user doesn't have one set (first login)
         // Subsequent IP updates must be manual via the update endpoint
@@ -579,6 +583,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getDiscordUser(session.userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.banned) {
+        return res.status(403).json({ error: "Account banned" });
       }
       
       const now = Date.now();
@@ -1765,6 +1773,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin routes (protected)
+
+  // Discord Users
+  app.get("/api/admin/users", adminAuth, async (req: Request, res: Response) => {
+    try {
+      const users = await storage.getDiscordUsers();
+      const usersWithAvatar = users.map((user) => ({
+        ...user,
+        avatarUrl: user.avatar
+          ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+          : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator) % 5}.png`,
+      }));
+      res.json(usersWithAvatar);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/users/:id/ban", adminAuth, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.banDiscordUser(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ success: true, user });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/users/:id/unban", adminAuth, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.unbanDiscordUser(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ success: true, user });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/users/:id/revoke-ip", adminAuth, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.updateDiscordUser(req.params.id, { ip: null as any });
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ success: true, user });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Provider accounts
   app.get("/api/admin/provider-accounts", adminAuth, async (req: Request, res: Response) => {
