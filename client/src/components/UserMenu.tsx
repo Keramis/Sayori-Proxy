@@ -19,7 +19,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { LogOut, User, RefreshCw, AlertTriangle, CheckCircle2, Shield, Briefcase } from 'lucide-react';
+import { LogOut, User, RefreshCw, CheckCircle2, Shield, Briefcase } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
@@ -44,7 +44,6 @@ export function UserMenu() {
 
   const authorizedIp = localStorage.getItem('authorized_ip') || user.authorizedIp;
   const currentIp = user.currentIp;
-  const isIpMismatch = authorizedIp && currentIp && authorizedIp !== currentIp;
 
   // Censor IP - supports both IPv4 and IPv6
   const censoredIp = (() => {
@@ -134,24 +133,16 @@ export function UserMenu() {
             <p className="text-sm font-medium leading-none">{displayName}</p>
             
             {/* IP Display Section */}
-            <div className={`flex items-center justify-between p-2 rounded-md border ${isIpMismatch ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'bg-muted/50 border-transparent'}`}>
+            <div className="flex items-center justify-between p-2 rounded-md border bg-muted/50 border-transparent">
               <div className="flex flex-col min-w-0 flex-1">
                 <span className="text-[10px] uppercase text-muted-foreground font-semibold">
                   Authorized IP
                 </span>
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className={`text-xs font-mono truncate ${isIpMismatch ? 'text-red-600 dark:text-red-400 font-bold' : 'text-foreground'}`} title={censoredIp}>
+                  <span className="text-xs font-mono truncate text-foreground" title={censoredIp}>
                     {censoredIp}
                   </span>
-                  {isIpMismatch && (
-                    <AlertTriangle className="h-3 w-3 text-red-500 shrink-0" />
-                  )}
                 </div>
-                {isIpMismatch && (
-                  <span className="text-[10px] text-red-500 leading-tight mt-0.5">
-                    IP mismatch detected
-                  </span>
-                )}
               </div>
               
               <Button
