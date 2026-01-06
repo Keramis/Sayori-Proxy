@@ -216,13 +216,9 @@ export function UserMenu() {
                 }
               }}
             />
-            <button
-              type="button"
-              onClick={handleInsertCurrentIp}
-              className="text-xs text-muted-foreground hover:text-foreground underline text-left"
-            >
-              Insert my current IP ({currentIp || 'unknown'})
-            </button>
+            <p className="text-xs text-muted-foreground text-left">
+              Same IP as in the bot message
+            </p>
           </div>
         </div>
         <DialogFooter>
