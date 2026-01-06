@@ -162,9 +162,9 @@ export function ProviderProviderList({ }: ProviderProviderListProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-semibold text-lg" data-testid={`provider-name-${provider.id}`}>
                       {provider.name}
                     </h3>
@@ -178,7 +178,7 @@ export function ProviderProviderList({ }: ProviderProviderListProps) {
                   <p className="text-sm text-muted-foreground font-mono break-all">{provider.baseUrl}</p>
                 </div>
 
-                <div className="flex items-center gap-3 flex-shrink-0">
+                <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={provider.enabled}
@@ -189,22 +189,24 @@ export function ProviderProviderList({ }: ProviderProviderListProps) {
                       {provider.enabled ? "Enabled" : "Disabled"}
                     </span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setEditingProvider(provider)}
-                    data-testid={`button-edit-${provider.id}`}
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteProvider(provider.id)}
-                    data-testid={`button-delete-${provider.id}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setEditingProvider(provider)}
+                      data-testid={`button-edit-${provider.id}`}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteProvider(provider.id)}
+                      data-testid={`button-delete-${provider.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 </div>
               </div>
 
