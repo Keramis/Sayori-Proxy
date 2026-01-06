@@ -5,6 +5,7 @@ import { AdminProviderList } from "@/components/AdminProviderList";
 import { AdminUserTokenForm } from "@/components/AdminUserTokenForm";
 import { AdminUserTokenList } from "@/components/AdminUserTokenList";
 import { AdminUserList } from "@/components/AdminUserList";
+import { AdminLogList } from "@/components/AdminLogList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -200,6 +201,18 @@ export default function Admin() {
             >
               Users
             </button>
+            <button
+              onClick={() => setActiveTab("logs")}
+              className={cn(
+                "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
+                activeTab === "logs"
+                  ? "bg-background text-foreground shadow"
+                  : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
+              )}
+              data-testid="tab-logs"
+            >
+              Logs
+            </button>
           </div>
 
           {activeTab === "providers" && (
@@ -239,6 +252,18 @@ export default function Admin() {
               <div>
                 <h2 className="text-xl font-semibold mb-4">Discord Users</h2>
                 <AdminUserList />
+              </div>
+            </div>
+          )}
+
+          {activeTab === "logs" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Request Logs</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  View all requests made from verified IP addresses
+                </p>
+                <AdminLogList />
               </div>
             </div>
           )}

@@ -16,8 +16,11 @@ import {
   InsertUsageRecord,
   Stats,
   AdminCredentials,
-  Admin,DiscordUser,
+  Admin,
+  DiscordUser,
   InsertDiscordUser,
+  RequestLog,
+  InsertRequestLog,
 } from '@shared/schema';
 import { IStorage } from './storage';
 
@@ -78,6 +81,7 @@ export class SQLiteStorage implements IStorage {
       this.ensureDiscordUserIpColumns();
       this.ensureDiscordUserBannedColumn();
       this.ensureDiscordUserRolesColumn();
+      this.ensureRequestLogsTable();
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -145,6 +149,36 @@ export class SQLiteStorage implements IStorage {
       this.db.exec("ALTER TABLE discord_users ADD COLUMN roles TEXT DEFAULT '[\"user\"]'");
       // Create index for roles column
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_discord_users_roles ON discord_users(roles)");
+    }
+  }
+
+  private ensureRequestLogsTable(): void {
+    const tableCheck = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='request_logs'").get();
+    if (!tableCheck) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS request_logs (
+          id TEXT PRIMARY KEY,
+          ip TEXT NOT NULL,
+          discord_user_id TEXT,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0,
+          model_id TEXT NOT NULL,
+          provider_id TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          referer TEXT,
+          status_code INTEGER NOT NULL,
+          latency INTEGER NOT NULL,
+          FOREIGN KEY (discord_user_id) REFERENCES discord_users(id) ON DELETE SET NULL,
+          FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+          FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_request_logs_ip ON request_logs(ip);
+        CREATE INDEX IF NOT EXISTS idx_request_logs_discord_user_id ON request_logs(discord_user_id);
+        CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_request_logs_model_id ON request_logs(model_id);
+        CREATE INDEX IF NOT EXISTS idx_request_logs_provider_id ON request_logs(provider_id);
+      `);
     }
   }
 
@@ -241,6 +275,22 @@ export class SQLiteStorage implements IStorage {
       banned: Boolean(row.banned),
       banReason: row.ban_reason ?? undefined,
       roles: roles,
+    };
+  }
+
+  private rowToRequestLog(row: any): RequestLog {
+    return {
+      id: row.id,
+      ip: row.ip,
+      discordUserId: row.discord_user_id ?? undefined,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      modelId: row.model_id,
+      providerId: row.provider_id,
+      timestamp: row.timestamp,
+      referer: row.referer ?? undefined,
+      statusCode: row.status_code,
+      latency: row.latency,
     };
   }
 
@@ -1601,6 +1651,108 @@ export class SQLiteStorage implements IStorage {
       return this.getDiscordUser(id);
     } catch (error) {
       console.error('Error updating Discord user:', error);
+      throw error;
+    }
+  }
+
+  // Request Log methods
+  async createRequestLog(log: InsertRequestLog): Promise<RequestLog> {
+    try {
+      const id = randomUUID();
+      const now = Date.now();
+
+      const stmt = this.db.prepare(`
+        INSERT INTO request_logs (
+          id, ip, discord_user_id, input_tokens, output_tokens,
+          model_id, provider_id, timestamp, referer, status_code, latency
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      stmt.run(
+        id,
+        log.ip,
+        log.discordUserId ?? null,
+        log.inputTokens,
+        log.outputTokens,
+        log.modelId,
+        log.providerId,
+        now,
+        log.referer ?? null,
+        log.statusCode,
+        log.latency
+      );
+
+      const getStmt = this.db.prepare('SELECT * FROM request_logs WHERE id = ?');
+      const row = getStmt.get(id);
+      return this.rowToRequestLog(row);
+    } catch (error) {
+      console.error('Error creating request log:', error);
+      throw error;
+    }
+  }
+
+  async getRequestLogs(options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    modelId?: string;
+    providerId?: string;
+  }): Promise<{ logs: RequestLog[]; total: number }> {
+    try {
+      const page = options?.page ?? 1;
+      const limit = options?.limit ?? 50;
+      const offset = (page - 1) * limit;
+
+      let whereClause = '';
+      const params: any[] = [];
+
+      const conditions: string[] = [];
+
+      if (options?.search) {
+        conditions.push('(rl.ip LIKE ? OR du.username LIKE ? OR du.global_name LIKE ?)');
+        const searchPattern = `%${options.search}%`;
+        params.push(searchPattern, searchPattern, searchPattern);
+      }
+
+      if (options?.modelId) {
+        conditions.push('rl.model_id = ?');
+        params.push(options.modelId);
+      }
+
+      if (options?.providerId) {
+        conditions.push('rl.provider_id = ?');
+        params.push(options.providerId);
+      }
+
+      if (conditions.length > 0) {
+        whereClause = 'WHERE ' + conditions.join(' AND ');
+      }
+
+      // Get total count
+      const countStmt = this.db.prepare(`
+        SELECT COUNT(*) as count
+        FROM request_logs rl
+        LEFT JOIN discord_users du ON rl.discord_user_id = du.id
+        ${whereClause}
+      `);
+      const countResult = countStmt.get(...params) as { count: number };
+      const total = countResult.count;
+
+      // Get paginated logs
+      const stmt = this.db.prepare(`
+        SELECT rl.*
+        FROM request_logs rl
+        LEFT JOIN discord_users du ON rl.discord_user_id = du.id
+        ${whereClause}
+        ORDER BY rl.timestamp DESC
+        LIMIT ? OFFSET ?
+      `);
+      const rows = stmt.all(...params, limit, offset);
+      const logs = rows.map(this.rowToRequestLog.bind(this));
+
+      return { logs, total };
+    } catch (error) {
+      console.error('Error getting request logs:', error);
       throw error;
     }
   }

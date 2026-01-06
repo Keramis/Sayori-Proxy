@@ -14,6 +14,8 @@ import {
   Admin,
   DiscordUser,
   InsertDiscordUser,
+  RequestLog,
+  InsertRequestLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -89,6 +91,16 @@ export interface IStorage {
   banDiscordUser(id: string, reason?: string): Promise<DiscordUser | undefined>;
   unbanDiscordUser(id: string): Promise<DiscordUser | undefined>;
   isIpAuthorized(ip: string): Promise<boolean>;
+
+  // Request Log methods
+  createRequestLog(log: InsertRequestLog): Promise<RequestLog>;
+  getRequestLogs(options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    modelId?: string;
+    providerId?: string;
+  }): Promise<{ logs: RequestLog[]; total: number }>;
 
   // Auth methods
   getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth">;

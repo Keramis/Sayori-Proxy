@@ -2345,6 +2345,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin - Request Logs
+  app.get("/api/admin/logs", await requireRole('admin'), async (req: Request, res: Response) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const search = req.query.search as string | undefined;
+      const modelId = req.query.modelId as string | undefined;
+      const providerId = req.query.providerId as string | undefined;
+
+      const result = await storage.getRequestLogs({
+        page,
+        limit,
+        search,
+        modelId,
+        providerId,
+      });
+
+      // Enrich logs with user and model/provider details
+      const enrichedLogs = await Promise.all(
+        result.logs.map(async (log) => {
+          let user = null;
+          if (log.discordUserId) {
+            const discordUser = await storage.getDiscordUser(log.discordUserId);
+            if (discordUser) {
+              user = {
+                id: discordUser.id,
+                username: discordUser.username,
+                globalName: discordUser.globalName,
+                avatarUrl: discordUser.avatar
+                  ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
+                  : `https://cdn.discordapp.com/embed/avatars/${parseInt(discordUser.discriminator) % 5}.png`,
+              };
+            }
+          }
+
+          const model = await storage.getModels().then(models =>
+            models.find(m => m.id === log.modelId)
+          );
+          const provider = await storage.getProvider(log.providerId);
+
+          return {
+            ...log,
+            user,
+            modelName: model?.modelId || 'Unknown',
+            providerName: provider?.name || 'Unknown',
+          };
+        })
+      );
+
+      res.json({
+        logs: enrichedLogs,
+        total: result.total,
+        page,
+        limit,
+        totalPages: Math.ceil(result.total / limit),
+      });
+    } catch (error: any) {
+      console.error('Error fetching logs:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/debug/ip", (req: Request, res: Response) => {
     res.json({
       cfConnectingIP: req.get('cf-connecting-ip'),
@@ -2410,6 +2472,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Check IP Authorization
     const clientIp = getClientIP(req);
     const isStreaming = req.body.stream === true;
+    const requestStartTime = Date.now();
+    const referer = req.get('referer') || req.get('origin') || undefined;
     
     try {
       const isAuthorized = await storage.isIpAuthorized(clientIp);
@@ -2597,6 +2661,30 @@ The IP received for this request was: ${clientIp}
         }
       });
     }
+
+    // Helper function to log request asynchronously
+    const logRequest = async (statusCode: number, inputTokens: number, outputTokens: number, modelId: string, providerId: string) => {
+      try {
+        const latency = Date.now() - requestStartTime;
+        const discordUser = await storage.getDiscordUsers().then(users =>
+          users.find(u => u.ip === clientIp)
+        );
+        
+        await storage.createRequestLog({
+          ip: clientIp,
+          discordUserId: discordUser?.id,
+          inputTokens,
+          outputTokens,
+          modelId,
+          providerId,
+          referer,
+          statusCode,
+          latency,
+        });
+      } catch (error) {
+        console.error('[LOG ERROR] Failed to create request log:', error);
+      }
+    };
 
     let responseSent = false;
 
@@ -2994,6 +3082,11 @@ The IP received for this request was: ${clientIp}
           // Log completed request
           console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${totalTokens} tokens.`);
 
+          // Log to database asynchronously
+          setImmediate(() => {
+            logRequest(200, actualInputTokens, outputTokens, targetModel.id, provider.id);
+          });
+
           await storage.decrementActiveRequests();
           console.log(`[DEBUG] Ending streaming response, headersSent: ${res.headersSent}, hasToolCalls: ${hasToolCalls}`);
 
@@ -3085,6 +3178,11 @@ The IP received for this request was: ${clientIp}
 
         // Log completed request
         console.log(`[${requestId}] Request from ${userToken.name} finished. Output: ${outputTokens} tokens, Total: ${tokens} tokens.`);
+
+        // Log to database asynchronously
+        setImmediate(() => {
+          logRequest(200, actualInputTokens, outputTokens, targetModel.id, provider.id);
+        });
 
         await storage.decrementActiveRequests();
 

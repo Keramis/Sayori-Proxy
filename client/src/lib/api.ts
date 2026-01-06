@@ -470,6 +470,27 @@ export const api = {
       return res.json();
     }),
 
+  // Admin - Logs
+  getLogs: (options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    modelId?: string;
+    providerId?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (options?.page) params.append('page', options.page.toString());
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.search) params.append('search', options.search);
+    if (options?.modelId) params.append('modelId', options.modelId);
+    if (options?.providerId) params.append('providerId', options.providerId);
+
+    return fetch(`/api/admin/logs?${params.toString()}`).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch logs");
+      return res.json();
+    });
+  },
+
   // Provider auth
   providerLogin: (username: string, password: string) =>
     fetch("/api/providers/login", {

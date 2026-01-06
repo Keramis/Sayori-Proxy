@@ -170,3 +170,32 @@ export const insertDiscordUserSchema = z.object({
 });
 
 export type InsertDiscordUser = z.infer<typeof insertDiscordUserSchema>;
+
+// Request Log schema
+export interface RequestLog {
+  id: string;
+  ip: string;
+  discordUserId?: string;
+  inputTokens: number;
+  outputTokens: number;
+  modelId: string;
+  providerId: string;
+  timestamp: number;
+  referer?: string;
+  statusCode: number;
+  latency: number;
+}
+
+export const insertRequestLogSchema = z.object({
+  ip: z.string(),
+  discordUserId: z.string().optional(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  modelId: z.string(),
+  providerId: z.string(),
+  referer: z.string().optional(),
+  statusCode: z.number().int(),
+  latency: z.number().nonnegative(),
+});
+
+export type InsertRequestLog = z.infer<typeof insertRequestLogSchema>;

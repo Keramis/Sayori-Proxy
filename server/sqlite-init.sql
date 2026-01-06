@@ -239,3 +239,29 @@ CREATE TABLE IF NOT EXISTS discord_users (
 -- Index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_discord_users_username ON discord_users(username);
 CREATE INDEX IF NOT EXISTS idx_discord_users_roles ON discord_users(roles);
+CREATE INDEX IF NOT EXISTS idx_discord_users_ip ON discord_users(ip);
+
+-- Request Logs table
+CREATE TABLE IF NOT EXISTS request_logs (
+  id TEXT PRIMARY KEY,
+  ip TEXT NOT NULL,
+  discord_user_id TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  model_id TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  referer TEXT,
+  status_code INTEGER NOT NULL,
+  latency INTEGER NOT NULL,
+  FOREIGN KEY (discord_user_id) REFERENCES discord_users(id) ON DELETE SET NULL,
+  FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+  FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
+);
+
+-- Indexes for request_logs
+CREATE INDEX IF NOT EXISTS idx_request_logs_ip ON request_logs(ip);
+CREATE INDEX IF NOT EXISTS idx_request_logs_discord_user_id ON request_logs(discord_user_id);
+CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_request_logs_model_id ON request_logs(model_id);
+CREATE INDEX IF NOT EXISTS idx_request_logs_provider_id ON request_logs(provider_id);
