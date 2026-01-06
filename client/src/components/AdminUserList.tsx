@@ -29,9 +29,9 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Ban, ShieldCheck, Wifi, WifiOff, Shield, Briefcase, UserCog } from "lucide-react";
+import { Ban, ShieldCheck, Wifi, WifiOff, Shield, Briefcase, UserCog, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 
 interface DiscordUser {
@@ -58,11 +58,27 @@ export function AdminUserList() {
   const [selectedUser, setSelectedUser] = useState<DiscordUser | null>(null);
   const [banReason, setBanReason] = useState("");
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: users = [], isLoading } = useQuery<DiscordUser[]>({
     queryKey: ["admin", "users"],
     queryFn: () => api.getDiscordUsers(),
   });
+
+  // Filter users based on search query (ID, IP, or Username)
+  const filteredUsers = useMemo(() => {
+    if (!searchQuery.trim()) return users;
+
+    const query = searchQuery.toLowerCase();
+    return users.filter((user) => {
+      const matchesId = user.id.toLowerCase().includes(query);
+      const matchesUsername = user.username.toLowerCase().includes(query);
+      const matchesGlobalName = (user.globalName || "").toLowerCase().includes(query);
+      const matchesIp = (user.ip || "").toLowerCase().includes(query);
+
+      return matchesId || matchesUsername || matchesGlobalName || matchesIp;
+    });
+  }, [users, searchQuery]);
 
   const banMutation = useMutation({
     mutationFn: ({ userId, reason }: { userId: string; reason?: string }) => api.banUser(userId, reason),
@@ -183,6 +199,28 @@ export function AdminUserList() {
 
   return (
     <>
+      {/* Search Section */}
+      <Card className="p-4 mb-4">
+        <div className="space-y-2">
+          <Label htmlFor="user-search">Search Users</Label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              id="user-search"
+              placeholder="Search by username, Discord ID, or IP..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          {searchQuery && (
+            <p className="text-sm text-muted-foreground">
+              Showing {filteredUsers.length} of {users.length} users
+            </p>
+          )}
+        </div>
+      </Card>
+
       <Card className="p-0 overflow-hidden">
         <Table>
         <TableHeader>
@@ -196,14 +234,14 @@ export function AdminUserList() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {users.length === 0 ? (
+          {filteredUsers.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                No users found.
+              <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                {searchQuery ? "No users match your search." : "No users found."}
               </TableCell>
             </TableRow>
           ) : (
-            users.map((user) => (
+            filteredUsers.map((user) => (
               <TableRow 
                 key={user.id} 
                 className={cn(user.banned && "opacity-50 bg-muted/50")}
