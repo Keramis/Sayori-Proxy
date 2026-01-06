@@ -13,9 +13,18 @@ import { DiscordLoginButton } from "@/components/DiscordLoginButton";
 import { cn } from "@/lib/utils";
 
 export default function Provider() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState("providers");
+  
+  // Get initial tab from URL query parameter or default to "providers"
+  const getInitialTab = () => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const validTabs = ["providers", "tokens"];
+    return tab && validTabs.includes(tab) ? tab : "providers";
+  };
+  
+  const [activeTab, setActiveTab] = useState(getInitialTab);
 
   // Check if user has provider role
   const roles = user?.roles || [];
@@ -124,7 +133,10 @@ export default function Provider() {
         <div className="space-y-6">
           <div className="flex space-x-1 rounded-xl bg-muted p-1">
             <button
-              onClick={() => setActiveTab("providers")}
+              onClick={() => {
+                setActiveTab("providers");
+                navigate("/provider?tab=providers");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
                 activeTab === "providers"
@@ -136,7 +148,10 @@ export default function Provider() {
               Providers
             </button>
             <button
-              onClick={() => setActiveTab("tokens")}
+              onClick={() => {
+                setActiveTab("tokens");
+                navigate("/provider?tab=tokens");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
                 activeTab === "tokens"

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Header } from "@/components/Header";
 import { AdminProviderForm } from "@/components/AdminProviderForm";
 import { AdminProviderList } from "@/components/AdminProviderList";
@@ -19,9 +20,19 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function Admin() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
+  const [location, setLocation] = useLocation();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isDiscordAdmin, setIsDiscordAdmin] = useState(false);
-  const [activeTab, setActiveTab] = useState("providers");
+  
+  // Get initial tab from URL query parameter or default to "providers"
+  const getInitialTab = () => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const validTabs = ["providers", "tokens", "users", "logs"];
+    return tab && validTabs.includes(tab) ? tab : "providers";
+  };
+  
+  const [activeTab, setActiveTab] = useState(getInitialTab);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -166,7 +177,10 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="flex space-x-1 rounded-xl bg-muted p-1">
             <button
-              onClick={() => setActiveTab("providers")}
+              onClick={() => {
+                setActiveTab("providers");
+                setLocation("/admin?tab=providers");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
                 activeTab === "providers"
@@ -178,7 +192,10 @@ export default function Admin() {
               Providers
             </button>
             <button
-              onClick={() => setActiveTab("tokens")}
+              onClick={() => {
+                setActiveTab("tokens");
+                setLocation("/admin?tab=tokens");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
                 activeTab === "tokens"
@@ -190,7 +207,10 @@ export default function Admin() {
               User Tokens
             </button>
             <button
-              onClick={() => setActiveTab("users")}
+              onClick={() => {
+                setActiveTab("users");
+                setLocation("/admin?tab=users");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
                 activeTab === "users"
@@ -202,7 +222,10 @@ export default function Admin() {
               Users
             </button>
             <button
-              onClick={() => setActiveTab("logs")}
+              onClick={() => {
+                setActiveTab("logs");
+                setLocation("/admin?tab=logs");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
                 activeTab === "logs"
