@@ -12,7 +12,7 @@ interface DiscordUser {
   authorizedIp?: string;
   currentIp?: string;
   banned?: boolean;
-  banReason?: string;
+  banReason?: string; // Ban reason from the database
   roles?: string[]; // User roles: ["user", "provider", "admin"]
 }
 

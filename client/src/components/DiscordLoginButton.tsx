@@ -8,14 +8,20 @@ interface DiscordLoginButtonProps {
   returnTo?: string;
   variant?: 'default' | 'outline';
   size?: 'default' | 'sm' | 'lg';
+  className?: string;
 }
 
-export function DiscordLoginButton({ 
-  returnTo, 
+export function DiscordLoginButton({
+  returnTo,
   variant = 'default',
-  size = 'default' 
+  size = 'default',
+  className
 }: DiscordLoginButtonProps) {
   const { login, isLoading } = useAuth();
+  
+  const buttonClassName = variant === 'default'
+    ? `bg-[#5865F2] hover:bg-[#4752C4] text-white ${className || ''}`
+    : className || '';
   
   return (
     <Button
@@ -23,7 +29,7 @@ export function DiscordLoginButton({
       disabled={isLoading}
       variant={variant}
       size={size}
-      className={variant === 'default' ? 'bg-[#5865F2] hover:bg-[#4752C4] text-white' : ''}
+      className={buttonClassName}
     >
       {/* Discord Logo SVG */}
       <svg 

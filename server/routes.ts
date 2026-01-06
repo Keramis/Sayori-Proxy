@@ -27,6 +27,7 @@ import {
   clearSessionCookie,
   SESSION_COOKIE_NAME
 } from './jwe-session';
+import { userHasRequiredRole } from './discord-bot';
 
 /* DEFINING RATE LIMIT FUNCITONS UP IN HERE */
 const adminLoginRateLimit = rateLimit({
@@ -450,6 +451,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Check for required role if USER_ROLE_ID is configured
+      const userRoleId = process.env.USER_ROLE_ID;
+      if (userRoleId) {
+        try {
+          const hasRole = await userHasRequiredRole(discordUser.id);
+          if (!hasRole) {
+            console.log(`User ${discordUser.username} (${discordUser.id}) attempted login but does not have required role ${userRoleId}`);
+            return res.redirect("/?error=role_required");
+          }
+        } catch (roleError) {
+          console.error("Failed to verify user role:", roleError);
+          // Fail open - if we can't verify the role, allow login
+          // This prevents lockouts if the bot is down
+        }
+      }
+      
       // Create or update user in database
       const clientIp = getClientIP(req);
       const now = Date.now();
@@ -575,6 +592,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           authorizedIp: user.ip,
           currentIp: getClientIP(req),
           banned: user.banned,
+          banReason: user.banReason,
           roles: user.roles || ["user"],
         },
       });

@@ -12,7 +12,7 @@ import UserManage from "@/pages/UserManage";
 import Banned from "@/pages/Banned";
 import NotFound from "@/pages/not-found";
 
-function ProtectedRoute({ component: Component, ...rest }: { component: React.ComponentType; path: string }) {
+function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
   
   // Show nothing while loading
