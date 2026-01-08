@@ -2492,12 +2492,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const isStreaming = req.body.stream === true;
     const requestStartTime = Date.now();
     const referer = req.get('referer') || req.get('origin') || undefined;
+
+    // Helper function to log request asynchronously
+    const logRequest = (statusCode: number, inputTokens: number, outputTokens: number, modelId?: string, providerId?: string) => {
+      const latency = Date.now() - requestStartTime;
+      
+      // Attempt to find user ID based on IP or current session
+      const userToken = (req as any).userToken;
+      
+      setImmediate(async () => {
+        try {
+          let discordUserId: string | undefined;
+          
+          if (userToken && userToken.id !== "anonymous" && userToken.id !== "general") {
+            const token = await storage.getUserTokenById(userToken.id);
+            discordUserId = token?.createdByProviderId;
+          }
+
+          if (!discordUserId) {
+            const discordUser = await storage.getDiscordUsers().then(users =>
+              users.find(u => u.ip === clientIp)
+            );
+            discordUserId = discordUser?.id;
+          }
+          
+          await storage.createRequestLog({
+            ip: clientIp,
+            discordUserId,
+            inputTokens,
+            outputTokens,
+            modelId,
+            providerId,
+            referer,
+            statusCode,
+            latency,
+          });
+        } catch (error) {
+          console.error('[LOG ERROR] Failed to create request log:', error);
+        }
+      });
+    };
     
     try {
       const isAuthorized = await storage.isIpAuthorized(clientIp);
       if (!isAuthorized) {
         console.error(`IP authorization failed for ${clientIp} on route: ${req.originalUrl}`);
         
+        logRequest(403, 0, 0);
+
         const deniedMessage = `# Your request was denied!
 Your IP address is not whitelisted on our platform.
 
@@ -2594,6 +2636,8 @@ Make sure to delete or reroll this message.`;
     } catch (error) {
       console.error("Error checking IP authorization:", error);
       
+      logRequest(403, 0, 0);
+
       const errorMessage = `# Your request was denied!
 Your IP address is not whitelisted on our platform.
 
@@ -2680,34 +2724,15 @@ The IP received for this request was: ${clientIp}
       });
     }
 
-    // Helper function to log request asynchronously
-    const logRequest = async (statusCode: number, inputTokens: number, outputTokens: number, modelId: string, providerId: string) => {
-      try {
-        const latency = Date.now() - requestStartTime;
-        const discordUser = await storage.getDiscordUsers().then(users =>
-          users.find(u => u.ip === clientIp)
-        );
-        
-        await storage.createRequestLog({
-          ip: clientIp,
-          discordUserId: discordUser?.id,
-          inputTokens,
-          outputTokens,
-          modelId,
-          providerId,
-          referer,
-          statusCode,
-          latency,
-        });
-      } catch (error) {
-        console.error('[LOG ERROR] Failed to create request log:', error);
-      }
-    };
 
     let responseSent = false;
 
-    const safeSendError = (statusCode: number, error: string) => {
+    const safeSendError = (statusCode: number, error: string, modelId?: string, providerId?: string) => {
       console.log(`[DEBUG] safeSendError called: statusCode=${statusCode}, error="${error}", headersSent=${res.headersSent}, responseSent=${responseSent}`);
+      
+      const inputTokens = req.body?.messages ? countInputTokens(req.body.messages) : 0;
+      logRequest(statusCode, inputTokens, 0, modelId, providerId);
+
       if (!res.headersSent && !responseSent) {
         responseSent = true;
         console.log(`[DEBUG] Sending error response: ${statusCode} - ${error}`);
@@ -2764,11 +2789,11 @@ The IP received for this request was: ${clientIp}
       }
 
       if (!targetModel.enabled) {
-        return safeSendError(400, `Model '${model}' is disabled`);
+        return safeSendError(400, `Model '${model}' is disabled`, targetModel.id, provider.id);
       }
 
       if (!provider.enabled) {
-        return safeSendError(400, "Provider is disabled");
+        return safeSendError(400, "Provider is disabled", targetModel.id, provider.id);
       }
 
       // Additional validation: Ensure the model and provider still exist in database
@@ -2780,11 +2805,11 @@ The IP received for this request was: ${clientIp}
         const providerExists = await storage.getProvider(provider.id);
 
         if (!modelExists) {
-          return safeSendError(404, `Model '${model}' no longer exists`);
+          return safeSendError(404, `Model '${model}' no longer exists`, targetModel.id, provider.id);
         }
 
         if (!providerExists) {
-          return safeSendError(404, `Provider for model '${model}' no longer exists`);
+          return safeSendError(404, `Provider for model '${model}' no longer exists`, targetModel.id, provider.id);
         }
       } catch (validationError: any) {
         console.error(`[${requestId}] Validation error:`, validationError.message);
@@ -2795,14 +2820,14 @@ The IP received for this request was: ${clientIp}
       const allowedProviderIds = await resolveTokenAllowedProviders(userToken);
       if (allowedProviderIds.length > 0) {
         if (!allowedProviderIds.includes(provider.id)) {
-          return safeSendError(403, `You don't have access to ${targetModel.modelId} from ${provider.name}`);
+          return safeSendError(403, `You don't have access to ${targetModel.modelId} from ${provider.name}`, targetModel.id, provider.id);
         }
       }
 
       if (targetModel.tokenLimit !== null && targetModel.tokenLimit !== undefined) {
         const limit = Number(targetModel.tokenLimit);
         if (Number.isFinite(limit) && inputTokens > limit) {
-          return safeSendError(400, `Context size too large! Valid: [${limit}], sent: [${inputTokens}]`);
+          return safeSendError(400, `Context size too large! Valid: [${limit}], sent: [${inputTokens}]`, targetModel.id, provider.id);
         }
       }
 
@@ -2813,7 +2838,7 @@ The IP received for this request was: ${clientIp}
       if (userToken.keyType === "sub") {
         const chainValidation = await storage.validateAncestorChain(userToken.id);
         if (!chainValidation.valid) {
-          return safeSendError(429, chainValidation.reason || "Token validation failed");
+          return safeSendError(429, chainValidation.reason || "Token validation failed", targetModel.id, provider.id);
         }
       }
 
@@ -2853,7 +2878,7 @@ The IP received for this request was: ${clientIp}
               required: requestCost,
               insufficientToken: quotaValidation.insufficientToken,
             }
-          }));
+          }), targetModel.id, provider.id);
         }
       } else {
         // For master keys, check only this token
@@ -2869,13 +2894,13 @@ The IP received for this request was: ${clientIp}
               maxRPD: userToken.maxRPD,
               used: todayUsage
             }
-          }));
+          }), targetModel.id, provider.id);
         }
       }
 
       const apiKey = await storage.getNextApiKey(provider.id);
       if (!apiKey) {
-        return safeSendError(500, "No API keys available for this provider");
+        return safeSendError(500, "No API keys available for this provider", targetModel.id, provider.id);
       }
 
       // Update cache and log

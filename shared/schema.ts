@@ -178,8 +178,8 @@ export interface RequestLog {
   discordUserId?: string;
   inputTokens: number;
   outputTokens: number;
-  modelId: string;
-  providerId: string;
+  modelId?: string;
+  providerId?: string;
   timestamp: number;
   referer?: string;
   statusCode: number;
@@ -191,8 +191,8 @@ export const insertRequestLogSchema = z.object({
   discordUserId: z.string().optional(),
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
-  modelId: z.string(),
-  providerId: z.string(),
+  modelId: z.string().optional(),
+  providerId: z.string().optional(),
   referer: z.string().optional(),
   statusCode: z.number().int(),
   latency: z.number().nonnegative(),
