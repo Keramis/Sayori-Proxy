@@ -338,17 +338,19 @@ export function ProviderModelList({ providerId, providerName, searchQuery = "" }
       {models.map((model: any) => (
         <div
           key={model.id}
-          className="flex items-center justify-between p-3 rounded-md border bg-card flex-wrap gap-2"
+          className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-md border bg-card gap-3"
           data-testid={`model-${model.id}`}
         >
-          <div className="flex-1 min-w-[200px]">
-            <span className="font-mono text-sm">{model.modelId}</span>
-            {model.enabled && (
-              <Badge variant="secondary" className="ml-2 text-xs">
-                Active
-              </Badge>
-            )}
-            <div className="flex items-center gap-2 mt-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono text-sm break-all">{model.modelId}</span>
+              {model.enabled && (
+                <Badge variant="secondary" className="text-xs">
+                  Active
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               {editingCost === model.id ? (
                 <>
                   <Input
@@ -395,7 +397,7 @@ export function ProviderModelList({ providerId, providerName, searchQuery = "" }
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               {editingTokenLimit === model.id ? (
                 <>
                   <Input
@@ -443,13 +445,13 @@ export function ProviderModelList({ providerId, providerName, searchQuery = "" }
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 self-start sm:self-auto">
             <Switch
               checked={model.enabled}
               onCheckedChange={() => toggleModel(model.id, model.enabled)}
               data-testid={`switch-model-${model.id}`}
             />
-            <span className="text-xs text-muted-foreground min-w-16">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
               {model.enabled ? "Enabled" : "Disabled"}
             </span>
           </div>
