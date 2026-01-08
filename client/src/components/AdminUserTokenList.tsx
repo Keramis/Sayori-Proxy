@@ -383,39 +383,41 @@ export function AdminUserTokenList({ }: AdminUserTokenListProps) {
                       <code className="text-sm font-mono bg-muted px-2 py-1 rounded break-all" data-testid={`token-value-${token.id}`}>
                         {token.token}
                       </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => copyToken(token.token)}
-                        data-testid={`button-copy-${token.id}`}>
-                        <Copy className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => regenerateToken(token.id, token.name)}
-                        data-testid={`button-regenerate-${token.id}`}
-                        title="Regenerate API key">
-                        <RefreshCw className="h-3 w-3" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => copyToken(token.token)}
+                          data-testid={`button-copy-${token.id}`}
+                          title="Copy token">
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => regenerateToken(token.id, token.name)}
+                          data-testid={`button-regenerate-${token.id}`}
+                          title="Regenerate API key">
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditDialog(token)}
+                          data-testid={`button-edit-token-${token.id}`}
+                          title="Edit token">
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteToken(token.id)}
+                          data-testid={`button-delete-token-${token.id}`}
+                          title="Delete token">
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="flex gap-2 self-start sm:self-auto flex-shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => openEditDialog(token)}
-                      data-testid={`button-edit-token-${token.id}`}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteToken(token.id)}
-                      data-testid={`button-delete-token-${token.id}`}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
                   </div>
                 </div>
 
