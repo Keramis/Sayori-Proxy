@@ -119,6 +119,17 @@ const authRateLimit = rateLimit({
     res.status(options.statusCode).send(options.message);
   },
 });
+const userApiKeyRateLimit = rateLimit({
+  windowMs: 5 * 60 * 1_000, // 5 minutes
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many API key rotation requests. Please wait 5 minutes.",
+  handler: (req, res, next, options) => {
+    console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  },
+});
 
 
 import session from "express-session";
@@ -670,6 +681,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/logout", authRateLimit, (req: Request, res: Response) => {
     clearSessionCookie(res);
     res.json({ success: true });
+  });
+
+  // User API Key routes
+  app.get("/api/user/api-key", async (req: Request, res: Response) => {
+    try {
+      const session = await getSessionFromRequest(req);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const user = await storage.getDiscordUser(session.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.banned) {
+        return res.status(403).json({ error: "Account banned" });
+      }
+      
+      // Get or create API key for user
+      let apiKey = await storage.getUserApiKey(user.id);
+      if (!apiKey) {
+        apiKey = await storage.createUserApiKey(user.id);
+      }
+      
+      res.json({
+        id: apiKey.id,
+        apiKey: apiKey.apiKey,
+        createdAt: apiKey.createdAt,
+        lastRotatedAt: apiKey.lastRotatedAt,
+      });
+      
+    } catch (error: any) {
+      console.error("Error getting user API key:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/user/api-key/rotate", userApiKeyRateLimit, async (req: Request, res: Response) => {
+    try {
+      const session = await getSessionFromRequest(req);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const user = await storage.getDiscordUser(session.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.banned) {
+        return res.status(403).json({ error: "Account banned" });
+      }
+      
+      // Get or create API key first
+      let apiKey = await storage.getUserApiKey(user.id);
+      if (!apiKey) {
+        apiKey = await storage.createUserApiKey(user.id);
+      } else {
+        // Rotate the existing key
+        apiKey = await storage.rotateUserApiKey(user.id);
+      }
+      
+      res.json({
+        id: apiKey.id,
+        apiKey: apiKey.apiKey,
+        createdAt: apiKey.createdAt,
+        lastRotatedAt: apiKey.lastRotatedAt,
+      });
+      
+    } catch (error: any) {
+      console.error("Error rotating user API key:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
   });
 
   app.get("/api/admin/me", async (req: Request, res: Response) => {

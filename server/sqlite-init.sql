@@ -241,6 +241,20 @@ CREATE INDEX IF NOT EXISTS idx_discord_users_username ON discord_users(username)
 CREATE INDEX IF NOT EXISTS idx_discord_users_roles ON discord_users(roles);
 CREATE INDEX IF NOT EXISTS idx_discord_users_ip ON discord_users(ip);
 
+-- User API Keys table
+CREATE TABLE IF NOT EXISTS user_api_keys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  api_key TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL,
+  last_rotated_at INTEGER,
+  FOREIGN KEY (user_id) REFERENCES discord_users(id) ON DELETE CASCADE
+);
+
+-- Index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_user_api_keys_user_id ON user_api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_api_keys_api_key ON user_api_keys(api_key);
+
 -- Request Logs table
 CREATE TABLE IF NOT EXISTS request_logs (
   id TEXT PRIMARY KEY,

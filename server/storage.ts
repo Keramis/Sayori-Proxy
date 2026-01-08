@@ -16,6 +16,8 @@ import {
   InsertDiscordUser,
   RequestLog,
   InsertRequestLog,
+  UserApiKey,
+  InsertUserApiKey,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -101,6 +103,11 @@ export interface IStorage {
     modelId?: string;
     providerId?: string;
   }): Promise<{ logs: RequestLog[]; total: number }>;
+
+  // User API Key methods
+  getUserApiKey(userId: string): Promise<UserApiKey | undefined>;
+  createUserApiKey(userId: string): Promise<UserApiKey>;
+  rotateUserApiKey(userId: string): Promise<UserApiKey>;
 
   // Auth methods
   getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth">;

@@ -199,3 +199,19 @@ export const insertRequestLogSchema = z.object({
 });
 
 export type InsertRequestLog = z.infer<typeof insertRequestLogSchema>;
+
+// User API Key schema
+export interface UserApiKey {
+  id: string;
+  userId: string;
+  apiKey: string;
+  createdAt: number;
+  lastRotatedAt?: number;
+}
+
+export const insertUserApiKeySchema = z.object({
+  userId: z.string(),
+  apiKey: z.string().min(1),
+});
+
+export type InsertUserApiKey = z.infer<typeof insertUserApiKeySchema>;

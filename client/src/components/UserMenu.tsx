@@ -19,7 +19,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { LogOut, User, RefreshCw, CheckCircle2, Shield, Briefcase } from 'lucide-react';
+import { LogOut, User, RefreshCw, CheckCircle2, Shield, Briefcase, Key } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
@@ -158,6 +158,17 @@ export function UserMenu() {
             </div>
           </div>
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        
+        {/* API Key Management */}
+        <DropdownMenuItem
+          className="cursor-pointer"
+          onClick={() => navigate('/api-key')}
+        >
+          <Key className="mr-2 h-4 w-4" />
+          <span>API Key</span>
+        </DropdownMenuItem>
+        
         <DropdownMenuSeparator />
         
         {/* Role-based dashboard links */}

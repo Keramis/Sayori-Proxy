@@ -21,6 +21,8 @@ import {
   InsertDiscordUser,
   RequestLog,
   InsertRequestLog,
+  UserApiKey,
+  InsertUserApiKey,
 } from '@shared/schema';
 import { IStorage } from './storage';
 
@@ -82,6 +84,7 @@ export class SQLiteStorage implements IStorage {
       this.ensureDiscordUserBannedColumn();
       this.ensureDiscordUserRolesColumn();
       this.ensureRequestLogsTable();
+      this.ensureUserApiKeysTable();
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -178,6 +181,25 @@ export class SQLiteStorage implements IStorage {
         CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
         CREATE INDEX IF NOT EXISTS idx_request_logs_model_id ON request_logs(model_id);
         CREATE INDEX IF NOT EXISTS idx_request_logs_provider_id ON request_logs(provider_id);
+      `);
+    }
+  }
+
+  private ensureUserApiKeysTable(): void {
+    const tableCheck = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user_api_keys'").get();
+    if (!tableCheck) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS user_api_keys (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          api_key TEXT NOT NULL UNIQUE,
+          created_at INTEGER NOT NULL,
+          last_rotated_at INTEGER,
+          FOREIGN KEY (user_id) REFERENCES discord_users(id) ON DELETE CASCADE
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_user_api_keys_user_id ON user_api_keys(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_api_keys_api_key ON user_api_keys(api_key);
       `);
     }
   }
@@ -291,6 +313,16 @@ export class SQLiteStorage implements IStorage {
       referer: row.referer ?? undefined,
       statusCode: row.status_code,
       latency: row.latency,
+    };
+  }
+
+  private rowToUserApiKey(row: any): UserApiKey {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      apiKey: row.api_key,
+      createdAt: row.created_at,
+      lastRotatedAt: row.last_rotated_at ?? undefined,
     };
   }
 
@@ -1753,6 +1785,70 @@ export class SQLiteStorage implements IStorage {
       return { logs, total };
     } catch (error) {
       console.error('Error getting request logs:', error);
+      throw error;
+    }
+  }
+
+  // User API Key methods
+  async getUserApiKey(userId: string): Promise<UserApiKey | undefined> {
+    try {
+      const stmt = this.db.prepare('SELECT * FROM user_api_keys WHERE user_id = ?');
+      const row = stmt.get(userId);
+      return row ? this.rowToUserApiKey(row) : undefined;
+    } catch (error) {
+      console.error('Error getting user API key:', error);
+      throw error;
+    }
+  }
+
+  async createUserApiKey(userId: string): Promise<UserApiKey> {
+    try {
+      const id = randomUUID();
+      const apiKey = "uak_" + randomUUID().replace(/-/g, "");
+      const now = Date.now();
+
+      const stmt = this.db.prepare(`
+        INSERT INTO user_api_keys (id, user_id, api_key, created_at, last_rotated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+
+      stmt.run(id, userId, apiKey, now, null);
+
+      const result = await this.getUserApiKey(userId);
+      if (!result) {
+        throw new Error(`Failed to create user API key for user ID: ${userId}`);
+      }
+      return result;
+    } catch (error) {
+      console.error('Error creating user API key:', error);
+      throw error;
+    }
+  }
+
+  async rotateUserApiKey(userId: string): Promise<UserApiKey> {
+    try {
+      const newApiKey = "uak_" + randomUUID().replace(/-/g, "");
+      const now = Date.now();
+
+      const stmt = this.db.prepare(`
+        UPDATE user_api_keys
+        SET api_key = ?, last_rotated_at = ?
+        WHERE user_id = ?
+      `);
+      
+      const result = stmt.run(newApiKey, now, userId);
+
+      if (result.changes === 0) {
+        throw new Error(`No API key found for user ID: ${userId}`);
+      }
+
+      const updatedKey = await this.getUserApiKey(userId);
+      if (!updatedKey) {
+        throw new Error(`Failed to retrieve rotated API key for user ID: ${userId}`);
+      }
+      return updatedKey;
+    } catch (error) {
+      console.error('Error rotating user API key:', error);
       throw error;
     }
   }

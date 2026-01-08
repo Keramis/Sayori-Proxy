@@ -727,4 +727,94 @@ export const api = {
       }
       return res.json();
     }),
+
+  // Provider - Sub-keys
+  providerCreateSubKey: (parentTokenId: string, data: { name: string; maxRPD: number; maxRPM: number; allowedProviders?: string[]; expiresAt?: number }) =>
+    fetch(`/api/providers/tokens/${parentTokenId}/sub-keys`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create sub-key");
+      }
+      return res.json();
+    }),
+
+  providerDeleteSubKey: (subKeyId: string) =>
+    fetch(`/api/providers/sub-keys/${subKeyId}`, {
+      method: "DELETE",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete sub-key");
+      }
+      return res.json();
+    }),
+
+  providerDisableSubKey: (subKeyId: string) =>
+    fetch(`/api/providers/sub-keys/${subKeyId}/disable`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to disable sub-key");
+      }
+      return res.json();
+    }),
+
+  providerEnableSubKey: (subKeyId: string) =>
+    fetch(`/api/providers/sub-keys/${subKeyId}/enable`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to enable sub-key");
+      }
+      return res.json();
+    }),
+
+  // User API Key Management
+  getUserApiKey: () =>
+    fetch("/api/user/api-key", {
+      credentials: "include",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to fetch API key");
+      }
+      return res.json();
+    }),
+
+  rotateUserApiKey: () =>
+    fetch("/api/user/api-key/rotate", {
+      method: "POST",
+      credentials: "include",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to rotate API key");
+      }
+      return res.json();
+    }),
+
+  // Discord OAuth
+  updateUserIp: (ip?: string) =>
+    fetch("/api/auth/update-ip", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(ip ? { ip } : {}),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update IP");
+      }
+      return res.json();
+    }),
 };
