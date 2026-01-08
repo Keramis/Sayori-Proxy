@@ -40,7 +40,7 @@ export function Header({ hideProviderLogin = false }: HeaderProps) {
         
         <div className="flex items-center gap-3">
           {/* Show role-based panels dropdown for authenticated users */}
-          {!hideProviderLogin && isAuthenticated && (isAdmin || isProvider) && (
+          {isAuthenticated && (isAdmin || isProvider) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="gap-2">
