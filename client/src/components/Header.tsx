@@ -71,7 +71,7 @@ export function Header({ hideProviderLogin = false }: HeaderProps) {
           ) : isAuthenticated ? (
             <UserMenu />
           ) : (
-            <DiscordLoginButton size="default" />
+            <DiscordLoginButton size="default" responsive={true} />
           )}
           
           <ThemeToggle />
