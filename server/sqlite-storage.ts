@@ -10,8 +10,6 @@ import {
   InsertApiKey,
   Model,
   InsertModel,
-  UserToken,
-  InsertUserToken,
   UsageRecord,
   InsertUsageRecord,
   Stats,
@@ -79,12 +77,14 @@ export class SQLiteStorage implements IStorage {
 
       this.ensureModelTokenLimitColumn();
       this.ensureProviderOwnerColumn();
-      this.ensureUserTokenCreatorColumn();
+      this.ensureProviderVisibilityColumns();
+      this.ensureUserApiKeyRateLimitColumns();
       this.ensureDiscordUserIpColumns();
       this.ensureDiscordUserBannedColumn();
       this.ensureDiscordUserRolesColumn();
       this.ensureRequestLogsTable();
       this.ensureUserApiKeysTable();
+      this.ensureUsageRecordsDiscordUserId();
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -109,12 +109,29 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
-  private ensureUserTokenCreatorColumn(): void {
-    const columns = this.db.prepare("PRAGMA table_info(user_tokens)").all() as { name: string }[];
+  private ensureProviderVisibilityColumns(): void {
+    const columns = this.db.prepare("PRAGMA table_info(providers)").all() as { name: string }[];
     if (columns.length === 0) return;
-    const hasCreator = columns.some((column) => column.name === "created_by_provider_id");
-    if (!hasCreator) {
-      this.db.exec("ALTER TABLE user_tokens ADD COLUMN created_by_provider_id TEXT");
+    const hasVisibility = columns.some((column) => column.name === "visibility");
+    if (!hasVisibility) {
+      this.db.exec("ALTER TABLE providers ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'");
+    }
+    const hasAllowedRoles = columns.some((column) => column.name === "allowed_roles");
+    if (!hasAllowedRoles) {
+      this.db.exec("ALTER TABLE providers ADD COLUMN allowed_roles TEXT");
+    }
+  }
+
+  private ensureUserApiKeyRateLimitColumns(): void {
+    const columns = this.db.prepare("PRAGMA table_info(user_api_keys)").all() as { name: string }[];
+    if (columns.length === 0) return;
+    const hasMaxRPD = columns.some((column) => column.name === "max_rpd");
+    if (!hasMaxRPD) {
+      this.db.exec("ALTER TABLE user_api_keys ADD COLUMN max_rpd REAL NOT NULL DEFAULT 1000");
+    }
+    const hasMaxRPM = columns.some((column) => column.name === "max_rpm");
+    if (!hasMaxRPM) {
+      this.db.exec("ALTER TABLE user_api_keys ADD COLUMN max_rpm REAL NOT NULL DEFAULT 60");
     }
   }
 
@@ -204,6 +221,85 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
+  /**
+   * Migrate usage_records from user_token_id to discord_user_id.
+   * If the table still has the old column, rebuild it preserving data.
+   * Old records that can't be mapped to a discord_user_id get NULL (kept for historical stats).
+   */
+  private ensureUsageRecordsDiscordUserId(): void {
+    const tableCheck = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='usage_records'").get();
+    if (!tableCheck) {
+      // Fresh install — create with correct schema
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS usage_records (
+          id TEXT PRIMARY KEY,
+          discord_user_id TEXT NOT NULL,
+          model_id TEXT,
+          provider_id TEXT,
+          tokens INTEGER DEFAULT 0,
+          input_tokens INTEGER DEFAULT 0,
+          output_tokens INTEGER DEFAULT 0,
+          timestamp INTEGER NOT NULL,
+          cost REAL NOT NULL DEFAULT 1.0,
+          FOREIGN KEY (discord_user_id) REFERENCES discord_users(id) ON DELETE SET NULL,
+          FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+          FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_records_discord_user_id ON usage_records(discord_user_id);
+        CREATE INDEX IF NOT EXISTS idx_usage_records_timestamp ON usage_records(timestamp);
+      `);
+      return;
+    }
+
+    // Existing table — check if it has the old column
+    const columns = this.db.prepare("PRAGMA table_info(usage_records)").all() as { name: string }[];
+    const hasDiscordUserId = columns.some((col) => col.name === "discord_user_id");
+    if (hasDiscordUserId) return; // Already migrated
+
+    console.log('[MIGRATION] Migrating usage_records: user_token_id → discord_user_id...');
+
+    const fkWasOn = this.db.pragma('foreign_keys', { simple: true }) as boolean;
+    this.db.pragma('foreign_keys = OFF');
+
+    this.db.exec(`
+      DROP TRIGGER IF EXISTS promote_child_usage_on_delete;
+      DROP TRIGGER IF EXISTS nullify_parent_usage_on_delete;
+      DROP TRIGGER IF EXISTS soft_delete_keys_on_provider_delete;
+      DROP TRIGGER IF EXISTS cascade_soft_delete_to_subkeys;
+      DROP TABLE IF EXISTS user_tokens;
+    `);
+
+    this.db.exec(`DROP TABLE IF EXISTS usage_records_new`);
+
+    this.db.exec(`
+      CREATE TABLE usage_records_new (
+        id TEXT PRIMARY KEY,
+        discord_user_id TEXT,
+        model_id TEXT,
+        provider_id TEXT,
+        tokens INTEGER DEFAULT 0,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        timestamp INTEGER NOT NULL,
+        cost REAL NOT NULL DEFAULT 1.0
+      );
+
+      INSERT INTO usage_records_new (id, discord_user_id, model_id, provider_id, tokens, input_tokens, output_tokens, timestamp, cost)
+        SELECT id, NULL, model_id, provider_id, tokens, input_tokens, output_tokens, timestamp, cost
+        FROM usage_records;
+
+      DROP TABLE usage_records;
+      ALTER TABLE usage_records_new RENAME TO usage_records;
+
+      CREATE INDEX idx_usage_records_discord_user_id ON usage_records(discord_user_id);
+      CREATE INDEX idx_usage_records_timestamp ON usage_records(timestamp);
+    `);
+
+    if (fkWasOn) this.db.pragma('foreign_keys = ON');
+
+    console.log('[MIGRATION] usage_records migration complete.');
+  }
+
   private rowToProvider(row: any): Provider {
     return {
       id: row.id,
@@ -214,6 +310,8 @@ export class SQLiteStorage implements IStorage {
       customHeaders: row.custom_headers ? JSON.parse(row.custom_headers) : undefined,
       disableCacheDiscount: Boolean(row.disable_cache_discount),
       ownerId: row.owner_id ?? undefined,
+      visibility: row.visibility || "public",
+      allowedRoles: row.allowed_roles ? JSON.parse(row.allowed_roles) : undefined,
     };
   }
 
@@ -238,29 +336,10 @@ export class SQLiteStorage implements IStorage {
     };
   }
 
-  private rowToUserToken(row: any): UserToken {
-    return {
-      id: row.id,
-      name: row.name,
-      token: row.token,
-      maxRPD: row.max_rpd,
-      maxRPM: row.max_rpm,
-      createdAt: row.created_at,
-      allowedProviders: row.allowed_providers ? JSON.parse(row.allowed_providers) : undefined,
-      parentTokenId: row.parent_token_id,
-      keyType: row.key_type,
-      expiresAt: row.expires_at,
-      disabled: !Boolean(row.enabled), // Convert enabled to disabled
-      sigmaBoy: Boolean(row.sigma_boy),
-      maxSubKeys: row.max_sub_keys,
-      createdByProviderId: row.created_by_provider_id ?? undefined,
-    };
-  }
-
   private rowToUsageRecord(row: any): UsageRecord {
     return {
       id: row.id,
-      userTokenId: row.user_token_id,
+      discordUserId: row.discord_user_id,
       modelId: row.model_id,
       providerId: row.provider_id,
       tokens: row.tokens,
@@ -323,6 +402,8 @@ export class SQLiteStorage implements IStorage {
       apiKey: row.api_key,
       createdAt: row.created_at,
       lastRotatedAt: row.last_rotated_at ?? undefined,
+      maxRPD: row.max_rpd ?? 1000,
+      maxRPM: row.max_rpm ?? 60,
     };
   }
 
@@ -355,8 +436,8 @@ export class SQLiteStorage implements IStorage {
       const now = Date.now();
 
       const stmt = this.db.prepare(`
-        INSERT INTO providers (id, name, base_url, enabled, created_at, custom_headers, disable_cache_discount, owner_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO providers (id, name, base_url, enabled, created_at, custom_headers, disable_cache_discount, owner_id, visibility, allowed_roles)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -367,7 +448,9 @@ export class SQLiteStorage implements IStorage {
         now,
         provider.customHeaders ? JSON.stringify(provider.customHeaders) : null,
         provider.disableCacheDiscount ? 1 : 0,
-        provider.ownerId || null
+        provider.ownerId || null,
+        provider.visibility || "public",
+        provider.allowedRoles ? JSON.stringify(provider.allowedRoles) : null
       );
 
       const result = await this.getProvider(id);
@@ -413,6 +496,14 @@ export class SQLiteStorage implements IStorage {
         updates.push('owner_id = ?');
         values.push(provider.ownerId);
       }
+      if (provider.visibility !== undefined) {
+        updates.push('visibility = ?');
+        values.push(provider.visibility);
+      }
+      if (provider.allowedRoles !== undefined) {
+        updates.push('allowed_roles = ?');
+        values.push(provider.allowedRoles ? JSON.stringify(provider.allowedRoles) : null);
+      }
 
       if (updates.length === 0) return existing;
 
@@ -429,50 +520,9 @@ export class SQLiteStorage implements IStorage {
 
   async deleteProvider(id: string): Promise<boolean> {
     try {
-      const transaction = this.db.transaction((providerId: string) => {
-        const now = Date.now();
-
-        // Clean up scoped keys before deleting the provider so existing databases
-        // don't rely solely on the trigger.
-        const tokens = this.db.prepare(`
-          SELECT id, allowed_providers 
-          FROM user_tokens 
-          WHERE key_type = 'master' AND allowed_providers IS NOT NULL AND deleted_at IS NULL
-        `).all() as { id: string; allowed_providers: string | null }[];
-
-        const updateAllowedProviders = this.db.prepare('UPDATE user_tokens SET allowed_providers = ? WHERE id = ?');
-        const softDeleteToken = this.db.prepare('UPDATE user_tokens SET allowed_providers = ?, deleted_at = ? WHERE id = ?');
-
-        for (const token of tokens) {
-          let providers: string[];
-
-          try {
-            providers = JSON.parse(token.allowed_providers || '[]');
-            if (!Array.isArray(providers)) {
-              continue;
-            }
-          } catch {
-            continue;
-          }
-
-          const filtered = providers.filter((p) => p !== providerId);
-          if (filtered.length === providers.length) {
-            continue; // Provider not in this token's allowed list
-          }
-
-          if (filtered.length === 0) {
-            softDeleteToken.run(JSON.stringify(filtered), now, token.id);
-          } else {
-            updateAllowedProviders.run(JSON.stringify(filtered), token.id);
-          }
-        }
-
-        const stmt = this.db.prepare('DELETE FROM providers WHERE id = ?');
-        const result = stmt.run(providerId);
-        return result.changes > 0;
-      });
-
-      return transaction(id);
+      const stmt = this.db.prepare('DELETE FROM providers WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
     } catch (error) {
       console.error('Error deleting provider:', error);
       throw error;
@@ -857,506 +907,13 @@ export class SQLiteStorage implements IStorage {
     return transaction();
   }
 
-  // User Token methods
-  async getUserTokens(): Promise<UserToken[]> {
-    try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE deleted_at IS NULL ORDER BY created_at DESC');
-      const rows = stmt.all();
-      return rows.map(this.rowToUserToken);
-    } catch (error) {
-      console.error('Error getting user tokens:', error);
-      throw error;
-    }
-  }
-
-  async getUserToken(token: string): Promise<UserToken | undefined> {
-    try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE token = ? AND deleted_at IS NULL');
-      const row = stmt.get(token);
-      return row ? this.rowToUserToken(row) : undefined;
-    } catch (error) {
-      console.error('Error getting user token:', error);
-      throw error;
-    }
-  }
-
-  async getUserTokenById(id: string): Promise<UserToken | undefined> {
-    try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ? AND deleted_at IS NULL');
-      const row = stmt.get(id);
-      return row ? this.rowToUserToken(row) : undefined;
-    } catch (error) {
-      console.error('Error getting user token by ID:', error);
-      throw error;
-    }
-  }
-
-  async createUserToken(userToken: InsertUserToken): Promise<UserToken> {
-    try {
-      const id = randomUUID();
-      const token = "sk_" + randomUUID().replace(/-/g, "");
-      const now = Date.now();
-
-      const stmt = this.db.prepare(`
-        INSERT INTO user_tokens (
-          id, name, token, max_rpd, max_rpm, created_at, allowed_providers,
-          parent_token_id, key_type, expires_at, enabled, sigma_boy, max_sub_keys,
-          created_by_provider_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      stmt.run(
-        id,
-        userToken.name,
-        token,
-        userToken.maxRPD,
-        userToken.maxRPM,
-        now,
-        userToken.allowedProviders ? JSON.stringify(userToken.allowedProviders) : null,
-        userToken.parentTokenId || null,
-        userToken.keyType || "master",
-        userToken.expiresAt || null,
-        userToken.disabled ? 0 : 1,
-        userToken.sigmaBoy ? 1 : 0,
-        userToken.maxSubKeys || 20,
-        userToken.createdByProviderId || null
-      );
-
-      const result = await this.getUserTokenById(id);
-      if (!result) {
-        throw new Error(`Failed to create user token with ID: ${id}`);
-      }
-      return result;
-    } catch (error) {
-      console.error('Error creating user token:', error);
-      throw error;
-    }
-  }
-
-  async updateUserToken(id: string, userToken: Partial<InsertUserToken>): Promise<UserToken | undefined> {
-    try {
-      const updates: string[] = [];
-      const values: any[] = [];
-
-      if (userToken.name !== undefined) {
-        updates.push('name = ?');
-        values.push(userToken.name);
-      }
-      if (userToken.maxRPD !== undefined) {
-        updates.push('max_rpd = ?');
-        values.push(userToken.maxRPD);
-      }
-      if (userToken.maxRPM !== undefined) {
-        updates.push('max_rpm = ?');
-        values.push(userToken.maxRPM);
-      }
-      if (userToken.allowedProviders !== undefined) {
-        updates.push('allowed_providers = ?');
-        values.push(userToken.allowedProviders ? JSON.stringify(userToken.allowedProviders) : null);
-      }
-      if (userToken.parentTokenId !== undefined) {
-        updates.push('parent_token_id = ?');
-        values.push(userToken.parentTokenId);
-      }
-      if (userToken.keyType !== undefined) {
-        updates.push('key_type = ?');
-        values.push(userToken.keyType);
-      }
-      if (userToken.expiresAt !== undefined) {
-        updates.push('expires_at = ?');
-        values.push(userToken.expiresAt);
-      }
-      if (userToken.disabled !== undefined) {
-        updates.push('enabled = ?');
-        values.push(userToken.disabled ? 0 : 1);
-      }
-      if (userToken.sigmaBoy !== undefined) {
-        updates.push('sigma_boy = ?');
-        values.push(userToken.sigmaBoy ? 1 : 0);
-      }
-      if (userToken.maxSubKeys !== undefined) {
-        updates.push('max_sub_keys = ?');
-        values.push(userToken.maxSubKeys);
-      }
-      if (userToken.createdByProviderId !== undefined) {
-        updates.push('created_by_provider_id = ?');
-        values.push(userToken.createdByProviderId);
-      }
-
-      if (updates.length === 0) {
-        return this.getUserTokenById(id);
-      }
-
-      values.push(id);
-      const stmt = this.db.prepare(`UPDATE user_tokens SET ${updates.join(', ')} WHERE id = ?`);
-      stmt.run(...values);
-
-      return this.getUserTokenById(id);
-    } catch (error) {
-      console.error('Error updating user token:', error);
-      throw error;
-    }
-  }
-
-  async deleteUserToken(id: string): Promise<boolean> {
-    try {
-      // const stmt = this.db.prepare('DELETE FROM user_tokens WHERE id = ?');
-      const stmt = this.db.prepare('UPDATE user_tokens SET deleted_at = ? WHERE id = ?');
-      const result = stmt.run(Date.now(), id);
-      return result.changes > 0;
-    } catch (error) {
-      console.error('Error deleting user token:', error);
-      throw error;
-    }
-  }
-
-  async regenerateUserToken(id: string): Promise<UserToken | undefined> {
-    try {
-      const newToken = "sk_" + randomUUID().replace(/-/g, "");
-      const stmt = this.db.prepare('UPDATE user_tokens SET token = ? WHERE id = ?');
-      const result = stmt.run(newToken, id);
-
-      if (result.changes === 0) return undefined;
-
-      return this.getUserTokenById(id);
-    } catch (error) {
-      console.error('Error regenerating user token:', error);
-      throw error;
-    }
-  }
-
-  // Sub-key specific methods
-  async getSubKeys(parentTokenId: string): Promise<UserToken[]> {
-    try {
-      const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE parent_token_id = ? AND deleted_at IS NULL ORDER BY created_at DESC');
-      const rows = stmt.all(parentTokenId);
-      return rows.map(this.rowToUserToken);
-    } catch (error) {
-      console.error('Error getting sub-keys:', error);
-      throw error;
-    }
-  }
-
-  async getAncestorChain(tokenId: string): Promise<UserToken[]> {
-    try {
-      const chain: UserToken[] = [];
-      let currentId: string | undefined = tokenId;
-      let iterations = 0;
-      const maxIterations = 100; // Prevent infinite loops - bandaid solution honestly, idfk why but i couldnt think of a better solution adn this works so yeah
-
-      while (currentId && iterations < maxIterations) {
-        const stmt = this.db.prepare('SELECT * FROM user_tokens WHERE id = ? AND deleted_at IS NULL');
-        const row: any = stmt.get(currentId);
-
-        if (!row) break;
-
-        chain.push(this.rowToUserToken(row));
-        currentId = row.parent_token_id;
-        iterations++;
-      }
-
-      if (iterations >= maxIterations) {
-        throw new Error("Circular reference detected in token hierarchy");
-      }
-
-      return chain;
-    } catch (error) {
-      console.error('Error getting ancestor chain:', error);
-      throw error;
-    }
-  }
-
-  async getRootToken(tokenId: string): Promise<UserToken | undefined> {
-    try {
-      const chain = await this.getAncestorChain(tokenId);
-      return chain.length > 0 ? chain[chain.length - 1] : undefined;
-    } catch (error) {
-      console.error('Error getting root token:', error);
-      throw error;
-    }
-  }
-
-  async getTotalAllocatedQuota(parentTokenId: string): Promise<{ rpd: number; rpm: number }> {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT
-          COALESCE(SUM(max_rpd), 0) as total_rpd,
-          COALESCE(SUM(max_rpm), 0) as total_rpm
-        FROM user_tokens
-        WHERE parent_token_id = ? AND deleted_at IS NULL
-      `);
-      const result = stmt.get(parentTokenId) as { total_rpd: number; total_rpm: number };
-
-      return {
-        rpd: Number(result.total_rpd.toFixed(2)),
-        rpm: Number(result.total_rpm.toFixed(2)),
-      };
-    } catch (error) {
-      console.error('Error getting total allocated quota:', error);
-      throw error;
-    }
-  }
-
-  isStrictNumber(value: any): boolean {
-    return typeof value === 'number' && !Number.isNaN(value);
-  }
-
-  async canCreateSubKey(parentTokenId: string, requestedRPD: number, requestedRPM: number): Promise<{ valid: boolean; reason?: string }> {
-    try {
-      const parent = await this.getUserTokenById(parentTokenId);
-      if (!parent) {
-        return { valid: false, reason: "Parent token not found" };
-      }
-
-      // Check if parent has Sigma Boy tier (required to create sub-keys)
-      if (!parent.sigmaBoy) {
-        return {
-          valid: false,
-          reason: "Only Sigma Boy tier tokens can create sub-keys"
-        };
-      }
-
-      // Check sub-key count limit
-      const existingSubKeys = await this.getSubKeys(parentTokenId);
-      const maxSubKeys = parent.maxSubKeys || 20;
-
-      if (existingSubKeys.length >= maxSubKeys) {
-        return {
-          valid: false,
-          reason: `Sub-key limit reached. Maximum allowed: ${maxSubKeys}`
-        };
-      }
-
-      // Validate input values
-      if (!this.isStrictNumber(requestedRPD) || !this.isStrictNumber(requestedRPM)) {
-        return {
-          valid: false,
-          reason: "Dude please stop trying to fuck up our service dawg"
-        };
-      }
-
-      const allocated = await this.getTotalAllocatedQuota(parentTokenId);
-
-      // Check for zero or negative values
-      if (requestedRPD <= 0 || requestedRPM <= 0) {
-        return {
-          valid: false,
-          reason: "Cannot set zero or negative values for RPD or RPM!"
-        };
-      }
-
-      const newTotalRPD = allocated.rpd + Math.abs(requestedRPD);
-      const newTotalRPM = allocated.rpm + Math.abs(requestedRPM);
-
-      if (newTotalRPD > parent.maxRPD) {
-        return {
-          valid: false,
-          reason: `Exceeds parent RPD limit. Available: ${parent.maxRPD - allocated.rpd}, Requested: ${requestedRPD}`,
-        };
-      }
-
-      if (newTotalRPM > parent.maxRPM) {
-        return {
-          valid: false,
-          reason: `Exceeds parent RPM limit. Available: ${parent.maxRPM - allocated.rpm}, Requested: ${requestedRPM}`,
-        };
-      }
-
-      return { valid: true };
-    } catch (error) {
-      console.error('Error checking if can create sub-key:', error);
-      return { valid: false, reason: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  async validateAncestorChain(tokenId: string): Promise<{ valid: boolean; reason?: string }> {
-    try {
-      const chain = await this.getAncestorChain(tokenId);
-
-      // Check each token in the chain to make sure none of em bitches are disabled
-      for (const token of chain) {
-        if (token.disabled) {
-          return {
-            valid: false,
-            reason: `Token disabled: ${token.name} (${token.keyType === "master" ? "master key" : "sub-key"})`,
-          };
-        }
-
-        if (token.expiresAt && token.expiresAt <= Date.now()) {
-          await this.updateUserToken(token.id, { disabled: true });
-          await this.cascadeDisableSubKeys(token.id);
-
-          return {
-            valid: false,
-            reason: `Token expired and auto-disabled: ${token.name} (${token.keyType === "master" ? "master key" : "sub-key"})`,
-          };
-        }
-
-        const todayUsage = await this.getTodayUsageCount(token.id);
-        const minuteUsage = await this.getMinuteUsageCount(token.id);
-
-        if (todayUsage >= token.maxRPD) {
-          return {
-            valid: false,
-            reason: `Daily limit exceeded for ${token.keyType === "master" ? "master key" : "parent sub-key"}: ${token.name}`,
-          };
-        }
-
-        if (minuteUsage >= token.maxRPM) {
-          return {
-            valid: false,
-            reason: `Rate limit exceeded for ${token.keyType === "master" ? "master key" : "parent sub-key"}: ${token.name}`,
-          };
-        }
-      }
-
-      return { valid: true };
-    } catch (error: any) {
-      return { valid: false, reason: error.message };
-    }
-  }
-
-  async validateAncestorChainQuota(tokenId: string, requestCost: number): Promise<{ valid: boolean; reason?: string; insufficientToken?: string }> {
-    try {
-      const chain = await this.getAncestorChain(tokenId);
-
-      for (const token of chain) {
-        const todayUsage = await this.getTodayUsageCount(token.id);
-        const remainingQuota = Number((token.maxRPD - todayUsage).toFixed(2));
-
-        if (remainingQuota < requestCost) {
-          return {
-            valid: false,
-            reason: `Insufficient quota in ${token.keyType === "master" ? "master key" : "ancestor sub-key"}: ${token.name}`,
-            insufficientToken: token.name,
-          };
-        }
-      }
-
-      return { valid: true };
-    } catch (error: any) {
-      return { valid: false, reason: error.message };
-    }
-  }
-
-  async createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void> {
-    console.log(`[DEBUG] createUsageRecordForChain called for tokenId: ${tokenId}`);
-
-    // FIX: Don't use transaction for async operations - handle manually
-    try {
-      console.log(`[DEBUG] Getting ancestor chain for tokenId: ${tokenId} `);
-      const chain = await this.getAncestorChain(tokenId);
-      console.log(`[DEBUG] Found ${chain.length} tokens in ancestor chain`);
-
-      for (const token of chain) {
-        console.log(`[DEBUG] Creating usage record for token: ${token.id} (${token.name})`);
-        await this.createUsageRecord({
-          ...record,
-          userTokenId: token.id,
-        });
-      }
-      console.log(`[DEBUG] Successfully created usage records for chain`);
-    } catch (error) {
-      console.error('[ERROR] Error in createUsageRecordForChain:', error);
-      throw error;
-    }
-  }
-
-  async cascadeDeleteSubKeys(parentTokenId: string): Promise<number> {
-    try {
-      let totalDeleted = 0;
-      let currentGeneration = [parentTokenId];
-
-      // Delete up to 2 generations at a time for cascading :sungl:
-      for (let gen = 0; gen < 2 && currentGeneration.length > 0; gen++) {
-        const nextGeneration: string[] = [];
-
-        for (const tokenId of currentGeneration) {
-          const subKeys = await this.getSubKeys(tokenId);
-
-          for (const subKey of subKeys) {
-            nextGeneration.push(subKey.id);
-            const deleteStmt = this.db.prepare('DELETE FROM user_tokens WHERE id = ?');
-            deleteStmt.run(subKey.id);
-            totalDeleted++;
-          }
-        }
-
-        currentGeneration = nextGeneration;
-      }
-
-      // If there are more generations, schedule async deletionn
-      if (currentGeneration.length > 0) {
-        setTimeout(async () => {
-          for (const tokenId of currentGeneration) {
-            await this.cascadeDeleteSubKeys(tokenId);
-          }
-        }, 100);
-      }
-
-      return totalDeleted;
-    } catch (error) {
-      console.error('Error in cascadeDeleteSubKeys:', error);
-      throw error;
-    }
-  }
-
-  async cascadeDisableSubKeys(parentTokenId: string): Promise<number> {
-    try {
-      let totalDisabled = 0;
-      const subKeys = await this.getSubKeys(parentTokenId);
-
-      for (const subKey of subKeys) {
-        await this.updateUserToken(subKey.id, { disabled: true });
-        totalDisabled++;
-
-        const childrenDisabled = await this.cascadeDisableSubKeys(subKey.id);
-        totalDisabled += childrenDisabled;
-      }
-
-      return totalDisabled;
-    } catch (error) {
-      console.error('Error in cascadeDisableSubKeys:', error);
-      throw error;
-    }
-  }
-
-  async cascadeEnableSubKeys(parentTokenId: string): Promise<number> {
-    try {
-      let totalEnabled = 0;
-      const subKeys = await this.getSubKeys(parentTokenId);
-
-      for (const subKey of subKeys) {
-        const isExpired = subKey.expiresAt && subKey.expiresAt <= Date.now();
-
-        if (!isExpired) {
-          await this.updateUserToken(subKey.id, { disabled: false });
-          totalEnabled++;
-
-          const childrenEnabled = await this.cascadeEnableSubKeys(subKey.id);
-          totalEnabled += childrenEnabled;
-        }
-      }
-
-      return totalEnabled;
-    } catch (error) {
-      console.error('Error in cascadeEnableSubKeys:', error);
-      throw error;
-    }
-  }
-
   async createUsageRecord(record: InsertUsageRecord): Promise<UsageRecord> {
     try {
       const id = randomUUID();
       const now = Date.now();
 
-      const userTokenCheck = this.db.prepare('SELECT id FROM user_tokens WHERE id = ?').get(record.userTokenId);
       const modelCheck = this.db.prepare('SELECT id FROM models WHERE id = ?').get(record.modelId);
       const providerCheck = this.db.prepare('SELECT id FROM providers WHERE id = ?').get(record.providerId);
-
-      if (!userTokenCheck) {
-        throw new Error(`Foreign key constraint failed: user_token_id '${record.userTokenId}' does not exist in user_tokens table`);
-      }
 
       if (!modelCheck) {
         throw new Error(`Foreign key constraint failed: model_id '${record.modelId}' does not exist in models table`);
@@ -1368,14 +925,14 @@ export class SQLiteStorage implements IStorage {
 
       const stmt = this.db.prepare(`
         INSERT INTO usage_records(
-        id, user_token_id, model_id, provider_id, tokens, input_tokens,
+        id, discord_user_id, model_id, provider_id, tokens, input_tokens,
         output_tokens, timestamp, cost
       ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
       stmt.run(
         id,
-        record.userTokenId,
+        record.discordUserId,
         record.modelId,
         record.providerId,
         record.tokens || 0,
@@ -1394,10 +951,10 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
-  async getUsageRecords(userTokenId: string): Promise<UsageRecord[]> {
+  async getUsageRecords(discordUserId: string): Promise<UsageRecord[]> {
     try {
-      const stmt = this.db.prepare('SELECT * FROM usage_records WHERE user_token_id = ? ORDER BY timestamp DESC');
-      const rows = stmt.all(userTokenId);
+      const stmt = this.db.prepare('SELECT * FROM usage_records WHERE discord_user_id = ? ORDER BY timestamp DESC');
+      const rows = stmt.all(discordUserId);
       return rows.map(this.rowToUsageRecord);
     } catch (error) {
       console.error('Error getting usage records:', error);
@@ -1405,7 +962,7 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
-  async getTodayUsageCount(userTokenId: string): Promise<number> {
+  async getTodayUsageCount(discordUserId: string): Promise<number> {
     try {
       const now = new Date();
       const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -1413,9 +970,9 @@ export class SQLiteStorage implements IStorage {
       const stmt = this.db.prepare(`
         SELECT COALESCE(SUM(cost), 0) as total_cost
         FROM usage_records 
-        WHERE user_token_id = ? AND timestamp >= ?
+        WHERE discord_user_id = ? AND timestamp >= ?
       `);
-      const result = stmt.get(userTokenId, today) as { total_cost: number };
+      const result = stmt.get(discordUserId, today) as { total_cost: number };
 
       return Number(result.total_cost.toFixed(2));
     } catch (error) {
@@ -1424,16 +981,16 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
-  async getMinuteUsageCount(userTokenId: string): Promise<number> {
+  async getMinuteUsageCount(discordUserId: string): Promise<number> {
     try {
       const oneMinuteAgo = Date.now() - 60000;
 
       const stmt = this.db.prepare(`
         SELECT COALESCE(SUM(cost), 0) as total_cost
         FROM usage_records 
-        WHERE user_token_id = ? AND timestamp >= ?
+        WHERE discord_user_id = ? AND timestamp >= ?
       `);
-      const result = stmt.get(userTokenId, oneMinuteAgo) as { total_cost: number };
+      const result = stmt.get(discordUserId, oneMinuteAgo) as { total_cost: number };
 
       return Number(result.total_cost.toFixed(2));
     } catch (error) {
@@ -1516,34 +1073,6 @@ export class SQLiteStorage implements IStorage {
     } catch (error) {
       console.error('Error creating admin:', error);
       throw error;
-    }
-  }
-
-  // Auth methods
-  async getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth"> {
-    try {
-      const stmt = this.db.prepare('SELECT value FROM system_config WHERE key = ?');
-      const row = stmt.get('auth_mode') as { value: string } | undefined;
-      // Parse the JSON string value if it's stored as JSON
-      let value = row?.value;
-      if (value && (value.startsWith('"') || value.startsWith("'"))) {
-        value = JSON.parse(value);
-      }
-      return (value as "user_tokens" | "general_password" | "no_auth") || "user_tokens";
-    } catch (error) {
-      console.error('Error getting auth mode:', error);
-      return "user_tokens";
-    }
-  }
-
-  async getGeneralPassword(): Promise<string | undefined> {
-    try {
-      const stmt = this.db.prepare('SELECT value FROM system_config WHERE key = ?');
-      const row = stmt.get('general_password') as { value: string } | undefined;
-      return row?.value === 'NULL' ? undefined : row?.value;
-    } catch (error) {
-      console.error('Error getting general password:', error);
-      return undefined;
     }
   }
 
@@ -1801,54 +1330,76 @@ export class SQLiteStorage implements IStorage {
     }
   }
 
+  async getUserApiKeyByKey(apiKey: string): Promise<UserApiKey | undefined> {
+    try {
+      const stmt = this.db.prepare('SELECT * FROM user_api_keys WHERE api_key = ?');
+      const row = stmt.get(apiKey);
+      return row ? this.rowToUserApiKey(row) : undefined;
+    } catch (error) {
+      console.error('Error getting user API key by key:', error);
+      throw error;
+    }
+  }
+
+  async getUserApiKeysByUserId(userId: string): Promise<UserApiKey[]> {
+    try {
+      const stmt = this.db.prepare('SELECT * FROM user_api_keys WHERE user_id = ? ORDER BY created_at DESC');
+      const rows = stmt.all(userId);
+      return rows.map(this.rowToUserApiKey.bind(this));
+    } catch (error) {
+      console.error('Error getting user API keys by user ID:', error);
+      throw error;
+    }
+  }
+
   async createUserApiKey(userId: string): Promise<UserApiKey> {
     try {
       const id = randomUUID();
-      const apiKey = "uak_" + randomUUID().replace(/-/g, "");
+      const apiKey = "sk_sp_" + randomUUID().replace(/-/g, "");
       const now = Date.now();
 
       const stmt = this.db.prepare(`
-        INSERT INTO user_api_keys (id, user_id, api_key, created_at, last_rotated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO user_api_keys (id, user_id, api_key, created_at, max_rpd, max_rpm)
+        VALUES (?, ?, ?, ?, 1000, 60)
       `);
 
-      stmt.run(id, userId, apiKey, now, null);
+      stmt.run(id, userId, apiKey, now);
 
-      const result = await this.getUserApiKey(userId);
-      if (!result) {
-        throw new Error(`Failed to create user API key for user ID: ${userId}`);
-      }
-      return result;
+      const getStmt = this.db.prepare('SELECT * FROM user_api_keys WHERE id = ?');
+      const row = getStmt.get(id);
+      return this.rowToUserApiKey(row);
     } catch (error) {
       console.error('Error creating user API key:', error);
       throw error;
     }
   }
 
-  async rotateUserApiKey(userId: string): Promise<UserApiKey> {
+  async rotateUserApiKey(id: string): Promise<UserApiKey | undefined> {
     try {
-      const newApiKey = "uak_" + randomUUID().replace(/-/g, "");
+      const newKey = "sk_sp_" + randomUUID().replace(/-/g, "");
       const now = Date.now();
-
-      const stmt = this.db.prepare(`
-        UPDATE user_api_keys
-        SET api_key = ?, last_rotated_at = ?
-        WHERE user_id = ?
-      `);
-      
-      const result = stmt.run(newApiKey, now, userId);
-
-      if (result.changes === 0) {
-        throw new Error(`No API key found for user ID: ${userId}`);
-      }
-
-      const updatedKey = await this.getUserApiKey(userId);
-      if (!updatedKey) {
-        throw new Error(`Failed to retrieve rotated API key for user ID: ${userId}`);
-      }
-      return updatedKey;
+      const stmt = this.db.prepare('UPDATE user_api_keys SET api_key = ?, last_rotated_at = ? WHERE id = ?');
+      const result = stmt.run(newKey, now, id);
+      if (result.changes === 0) return undefined;
+      const getStmt = this.db.prepare('SELECT * FROM user_api_keys WHERE id = ?');
+      const row = getStmt.get(id);
+      return row ? this.rowToUserApiKey(row) : undefined;
     } catch (error) {
       console.error('Error rotating user API key:', error);
+      throw error;
+    }
+  }
+
+  async updateUserApiKeyRateLimits(id: string, maxRPD: number, maxRPM: number): Promise<UserApiKey | undefined> {
+    try {
+      const stmt = this.db.prepare('UPDATE user_api_keys SET max_rpd = ?, max_rpm = ? WHERE id = ?');
+      const result = stmt.run(maxRPD, maxRPM, id);
+      if (result.changes === 0) return undefined;
+      const getStmt = this.db.prepare('SELECT * FROM user_api_keys WHERE id = ?');
+      const row = getStmt.get(id);
+      return row ? this.rowToUserApiKey(row) : undefined;
+    } catch (error) {
+      console.error('Error updating user API key rate limits:', error);
       throw error;
     }
   }

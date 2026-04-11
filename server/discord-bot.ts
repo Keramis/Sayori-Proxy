@@ -9,6 +9,11 @@ const GUILD_ID = process.env.GUILD_ID;
 const USER_ROLE_ID = process.env.USER_ROLE_ID;
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
+// Role cache with 60-second TTL
+let cachedRoles: Array<{ id: string; name: string }> | null = null;
+let rolesCacheTimestamp = 0;
+const ROLES_CACHE_TTL_MS = 60_000; // 1 minute
+
 /**
  * Check if a user has the required role in the guild
  * @param userId - Discord user ID to check
@@ -48,6 +53,59 @@ export async function userHasRequiredRole(userId: string): Promise<boolean> {
     // Fail open - allow access if there's an error
     return true;
   }
+}
+
+/**
+ * Fetch all available roles from the guild.
+ * Results are cached for 60 seconds to avoid hitting Discord API on every request.
+ */
+export async function fetchGuildRoles(): Promise<Array<{ id: string; name: string }>> {
+  const now = Date.now();
+  if (cachedRoles && (now - rolesCacheTimestamp) < ROLES_CACHE_TTL_MS) {
+    return cachedRoles;
+  }
+
+  if (!discordClient || !discordClient.isReady() || !GUILD_ID) {
+    return cachedRoles || [];
+  }
+
+  const guild = discordClient.guilds.cache.get(GUILD_ID);
+  if (!guild) return cachedRoles || [];
+
+  cachedRoles = guild.roles.cache
+    .filter(role => !role.managed && role.id !== guild.id)
+    .map(role => ({ id: role.id, name: role.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  rolesCacheTimestamp = now;
+
+  return cachedRoles;
+}
+
+export function invalidateRoleCache(): void {
+  cachedRoles = null;
+  rolesCacheTimestamp = 0;
+}
+
+/**
+ * Check if a user has ANY of the specified roles.
+ * Fails CLOSED (returns false) if the bot is down or the guild is unavailable.
+ */
+export async function userHasAnyRole(userId: string, roleIds: string[]): Promise<boolean> {
+  if (!discordClient || !discordClient.isReady() || !GUILD_ID) {
+    console.warn('[SECURITY] Bot unavailable during role check — denying access (fail-closed)');
+    return false;
+  }
+
+  const guild = discordClient.guilds.cache.get(GUILD_ID);
+  if (!guild) {
+    console.warn('[SECURITY] Guild not found during role check — denying access (fail-closed)');
+    return false;
+  }
+
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member) return false;
+
+  return roleIds.some(roleId => member.roles.cache.has(roleId));
 }
 
 /**

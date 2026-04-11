@@ -5,8 +5,6 @@ import {
   InsertApiKey,
   Model,
   InsertModel,
-  UserToken,
-  InsertUserToken,
   UsageRecord,
   InsertUsageRecord,
   Stats,
@@ -48,33 +46,11 @@ export interface IStorage {
   disableAllModelsByProvider(providerId: string): Promise<Model[]>;
   updateCostAllModelsByProvider(providerId: string, requestCost: number): Promise<Model[]>;
 
-  // User Token methods
-  getUserTokens(): Promise<UserToken[]>;
-  getUserToken(token: string): Promise<UserToken | undefined>;
-  getUserTokenById(id: string): Promise<UserToken | undefined>;
-  createUserToken(userToken: InsertUserToken): Promise<UserToken>;
-  updateUserToken(id: string, userToken: Partial<InsertUserToken>): Promise<UserToken | undefined>;
-  deleteUserToken(id: string): Promise<boolean>;
-  regenerateUserToken(id: string): Promise<UserToken | undefined>;
-
-  // Sub-key methods
-  getSubKeys(parentTokenId: string): Promise<UserToken[]>;
-  getAncestorChain(tokenId: string): Promise<UserToken[]>;
-  getRootToken(tokenId: string): Promise<UserToken | undefined>;
-  getTotalAllocatedQuota(parentTokenId: string): Promise<{ rpd: number; rpm: number }>;
-  canCreateSubKey(parentTokenId: string, requestedRPD: number, requestedRPM: number): Promise<{ valid: boolean; reason?: string }>;
-  validateAncestorChain(tokenId: string): Promise<{ valid: boolean; reason?: string }>;
-  validateAncestorChainQuota(tokenId: string, requestCost: number): Promise<{ valid: boolean; reason?: string; insufficientToken?: string }>;
-  createUsageRecordForChain(tokenId: string, record: Omit<InsertUsageRecord, "userTokenId">): Promise<void>;
-  cascadeDeleteSubKeys(parentTokenId: string): Promise<number>;
-  cascadeDisableSubKeys(parentTokenId: string): Promise<number>;
-  cascadeEnableSubKeys(parentTokenId: string): Promise<number>;
-
   // Usage methods
   createUsageRecord(record: InsertUsageRecord): Promise<UsageRecord>;
-  getUsageRecords(userTokenId: string): Promise<UsageRecord[]>;
-  getTodayUsageCount(userTokenId: string): Promise<number>;
-  getMinuteUsageCount(userTokenId: string): Promise<number>;
+  getUsageRecords(discordUserId: string): Promise<UsageRecord[]>;
+  getTodayUsageCount(discordUserId: string): Promise<number>;
+  getMinuteUsageCount(discordUserId: string): Promise<number>;
 
   // Stats methods
   getStats(): Promise<Stats>;
@@ -106,12 +82,11 @@ export interface IStorage {
 
   // User API Key methods
   getUserApiKey(userId: string): Promise<UserApiKey | undefined>;
+  getUserApiKeyByKey(apiKey: string): Promise<UserApiKey | undefined>;
+  getUserApiKeysByUserId(userId: string): Promise<UserApiKey[]>;
   createUserApiKey(userId: string): Promise<UserApiKey>;
-  rotateUserApiKey(userId: string): Promise<UserApiKey>;
-
-  // Auth methods
-  getAuthMode(): Promise<"user_tokens" | "general_password" | "no_auth">;
-  getGeneralPassword(): Promise<string | undefined>;
+  rotateUserApiKey(id: string): Promise<UserApiKey | undefined>;
+  updateUserApiKeyRateLimits(id: string, maxRPD: number, maxRPM: number): Promise<UserApiKey | undefined>;
 }
 
 import { SQLiteStorage } from './sqlite-storage';

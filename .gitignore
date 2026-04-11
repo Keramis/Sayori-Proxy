@@ -8,10 +8,11 @@ vite.config.ts.*
 database.json
 *database*.json
 database.sqlite
+database.sqlite-*
 *sessions*
-database.sqlite-shm
-database.sqlite-wal
 sessions.sqlite
 providers.sqlite
 providers.db
+providers.db-*
+*.pre-migration-backup
 bun.lock

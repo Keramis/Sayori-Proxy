@@ -10,6 +10,8 @@ export interface Provider {
   customHeaders?: Record<string, string>;
   disableCacheDiscount?: boolean;
   ownerId?: string;
+  visibility: "public" | "private";
+  allowedRoles?: string[];
 }
 
 export const insertProviderSchema = z.object({
@@ -19,6 +21,8 @@ export const insertProviderSchema = z.object({
   customHeaders: z.record(z.string()).optional(),
   disableCacheDiscount: z.boolean().default(false).optional(),
   ownerId: z.string().optional(),
+  visibility: z.enum(["public", "private"]).default("public"),
+  allowedRoles: z.array(z.string()).nullable().optional(),
 });
 
 export type InsertProvider = z.infer<typeof insertProviderSchema>;
@@ -59,44 +63,10 @@ export const insertModelSchema = z.object({
 
 export type InsertModel = z.infer<typeof insertModelSchema>;
 
-// User Token schema
-export interface UserToken {
-  id: string;
-  name: string;
-  token: string;
-  maxRPD: number;
-  maxRPM: number;
-  createdAt: number;
-  allowedProviders?: string[];
-  parentTokenId?: string; // ID of parent token (undefined for master keys)
-  keyType: "master" | "sub"; // Type of key
-  expiresAt?: number; // Expiration timestamp (undefined = never expires)
-  disabled?: boolean; // If true, the key is disabled (default: false)
-  sigmaBoy?: boolean; // If true, allows creating sub-keys (default: false for "regular" tier)
-  maxSubKeys?: number; // Maximum number of sub-keys that can be created (default: 20 for Sigma Boy)
-  createdByProviderId?: string;
-}
-
-export const insertUserTokenSchema = z.object({
-  name: z.string().min(1),
-  maxRPD: z.number().int().positive(),
-  maxRPM: z.number().int().positive(),
-  allowedProviders: z.array(z.string()).optional(),
-  parentTokenId: z.string().optional(),
-  keyType: z.enum(["master", "sub"]).default("master"),
-  expiresAt: z.number().optional(),
-  disabled: z.boolean().optional(),
-  sigmaBoy: z.boolean().optional(),
-  maxSubKeys: z.number().int().min(2).optional(),
-  createdByProviderId: z.string().optional(),
-});
-
-export type InsertUserToken = z.infer<typeof insertUserTokenSchema>;
-
 // Usage Record schema
 export interface UsageRecord {
   id: string;
-  userTokenId: string;
+  discordUserId: string;
   modelId: string;
   providerId: string;
   tokens: number;
@@ -107,7 +77,7 @@ export interface UsageRecord {
 }
 
 export const insertUsageRecordSchema = z.object({
-  userTokenId: z.string(),
+  discordUserId: z.string(),
   modelId: z.string(),
   providerId: z.string(),
   tokens: z.number().int().nonnegative(),
@@ -207,11 +177,15 @@ export interface UserApiKey {
   apiKey: string;
   createdAt: number;
   lastRotatedAt?: number;
+  maxRPD: number;
+  maxRPM: number;
 }
 
 export const insertUserApiKeySchema = z.object({
   userId: z.string(),
   apiKey: z.string().min(1),
+  maxRPD: z.number().int().positive().default(1000),
+  maxRPM: z.number().int().positive().default(60),
 });
 
 export type InsertUserApiKey = z.infer<typeof insertUserApiKeySchema>;
