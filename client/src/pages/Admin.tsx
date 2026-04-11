@@ -3,10 +3,9 @@ import { useLocation } from "wouter";
 import { Header } from "@/components/Header";
 import { AdminProviderForm } from "@/components/AdminProviderForm";
 import { AdminProviderList } from "@/components/AdminProviderList";
-import { AdminUserTokenForm } from "@/components/AdminUserTokenForm";
-import { AdminUserTokenList } from "@/components/AdminUserTokenList";
 import { AdminUserList } from "@/components/AdminUserList";
 import { AdminLogList } from "@/components/AdminLogList";
+import { AdminUserApiKeyList } from "@/components/AdminUserApiKeyList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,11 +23,10 @@ export default function Admin() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isDiscordAdmin, setIsDiscordAdmin] = useState(false);
   
-  // Get initial tab from URL query parameter or default to "providers"
   const getInitialTab = () => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    const validTabs = ["providers", "tokens", "users", "logs"];
+    const validTabs = ["providers", "users", "logs"];
     return tab && validTabs.includes(tab) ? tab : "providers";
   };
   
@@ -39,14 +37,12 @@ export default function Admin() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Check if user is authenticated via Discord OAuth with admin role
     if (user && user.roles?.includes("admin")) {
       setIsAuthenticated(true);
       setIsDiscordAdmin(true);
       return;
     }
 
-    // Otherwise, check for legacy admin session
     setIsDiscordAdmin(false);
     api.checkAuth()
       .then(() => setIsAuthenticated(true))
@@ -91,7 +87,6 @@ export default function Admin() {
     }
   };
 
-  // Show loading state while checking authentication
   if (authLoading) {
     return null;
   }
@@ -166,7 +161,7 @@ export default function Admin() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-semibold mb-2">Admin Dashboard</h1>
             <p className="text-muted-foreground text-sm sm:text-base">
-              Manage providers, user tokens, and system settings
+              Manage providers, users, and system settings
             </p>
           </div>
           {!isDiscordAdmin && (
@@ -190,21 +185,6 @@ export default function Admin() {
               data-testid="tab-providers"
             >
               Providers
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("tokens");
-                setLocation("/admin?tab=tokens");
-              }}
-              className={cn(
-                "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
-                activeTab === "tokens"
-                  ? "bg-background text-foreground shadow"
-                  : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
-              )}
-              data-testid="tab-tokens"
-            >
-              User Tokens
             </button>
             <button
               onClick={() => {
@@ -254,27 +234,18 @@ export default function Admin() {
             </div>
           )}
 
-          {activeTab === "tokens" && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Create New Token</h2>
-                <div className="max-w-2xl">
-                  <AdminUserTokenForm />
-                </div>
-              </div>
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Existing Tokens</h2>
-                <AdminUserTokenList />
-              </div>
-            </div>
-          )}
-
           {activeTab === "users" && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div>
                 <h2 className="text-xl font-semibold mb-4">Discord Users</h2>
                 <AdminUserList />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold mb-4">User API Keys</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  View and manage per-user API keys, rate limits, and key rotation
+                </p>
+                <AdminUserApiKeyList />
               </div>
             </div>
           )}

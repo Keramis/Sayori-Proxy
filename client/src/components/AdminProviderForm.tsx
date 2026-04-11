@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, CheckCircle, Edit2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { ProviderVisibilitySelector } from "./ProviderVisibilitySelector";
 
 interface AdminProviderFormProps {
   editProvider?: any;
@@ -31,6 +32,8 @@ export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange
   const [editingKeyIndex, setEditingKeyIndex] = useState<number | null>(null);
   const [modelCount, setModelCount] = useState<number | null>(null);
   const [modelSearch, setModelSearch] = useState("");
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [allowedRoles, setAllowedRoles] = useState<string[]>([]);
 
   const providerId = editProvider?.id;
 
@@ -45,11 +48,12 @@ export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange
           ? JSON.stringify(editProvider.customHeaders, null, 2)
           : ""
       );
-      // Fetch keys
       api.getProviderKeys(editProvider.id).then((keys: any[]) => {
         setApiKeys(keys.map((k) => k.key));
         setApiKeyIds(keys.map((k) => k.id));
       });
+      setVisibility(editProvider.visibility || "public");
+      setAllowedRoles(editProvider.allowedRoles || []);
     } else {
       setName("");
       setBaseUrl("");
@@ -59,6 +63,8 @@ export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange
       setApiKeys([""]);
       setApiKeyIds([]);
       setModelCount(null);
+      setVisibility("public");
+      setAllowedRoles([]);
     }
   }, [editProvider]);
 
@@ -152,6 +158,8 @@ export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange
         enabled,
         customHeaders,
         disableCacheDiscount,
+        visibility,
+        allowedRoles: visibility === "private" ? allowedRoles : undefined,
       };
 
       if (editProvider) {
@@ -189,6 +197,8 @@ export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange
         setApiKeys([""]);
         setApiKeyIds([]);
         setModelCount(null);
+        setVisibility("public");
+        setAllowedRoles([]);
       }
     } catch (error: any) {
       toast({
@@ -262,6 +272,15 @@ export function AdminProviderForm({ editProvider, onEditComplete, onSearchChange
             data-testid="input-custom-headers"
           />
         </div>
+
+        <ProviderVisibilitySelector
+          visibility={visibility}
+          allowedRoles={allowedRoles}
+          onChange={(vis, roles) => {
+            setVisibility(vis);
+            setAllowedRoles(roles || []);
+          }}
+        />
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">

@@ -11,104 +11,6 @@ export const api = {
   // Public providers
   getPublicProviders: () => fetch("/api/providers/public").then((res) => res.json()),
 
-  // Token stats
-  getTokenStats: (token: string) =>
-    fetch("/api/token/stats", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to fetch token stats");
-      }
-      return res.json();
-    }),
-
-  // Update token name
-  updateTokenName: (token: string, name: string) =>
-    fetch("/api/token/update-name", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, name }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to update token name");
-      }
-      return res.json();
-    }),
-
-  // Get comprehensive user token management data
-  getUserManageData: (token: string) =>
-    fetch("/api/user/manage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to fetch user data");
-      }
-      return res.json();
-    }),
-
-  // Create sub-key
-  createSubKey: (token: string, data: { name: string; maxRPD: number; maxRPM: number; allowedProviders?: string[]; expiresAt?: number }) =>
-    fetch("/api/user/sub-keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, ...data }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create sub-key");
-      }
-      return res.json();
-    }),
-
-  // Delete sub-key
-  deleteSubKey: (token: string, subKeyId: string) =>
-    fetch(`/api/user/sub-keys/${subKeyId}`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to delete sub-key");
-      }
-      return res.json();
-    }),
-
-  // Disable sub-key (cascade)
-  disableSubKey: (token: string, subKeyId: string) =>
-    fetch(`/api/user/sub-keys/${subKeyId}/disable`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to disable sub-key");
-      }
-      return res.json();
-    }),
-
-  // Enable sub-key (cascade)
-  enableSubKey: (token: string, subKeyId: string) =>
-    fetch(`/api/user/sub-keys/${subKeyId}/enable`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to enable sub-key");
-      }
-      return res.json();
-    }),
-
   // Admin login
   adminLogin: (username: string, password: string) =>
     fetch("/api/admin/login", {
@@ -306,110 +208,6 @@ export const api = {
     }
     return response.json();
   },
-
-  // Admin - User Tokens
-  getUserTokens: () =>
-    fetch("/api/admin/tokens").then(async (res) => {
-      if (!res.ok) throw new Error("Failed to fetch user tokens");
-      return res.json();
-    }),
-
-  createUserToken: (data: any) =>
-    fetch("/api/admin/tokens", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create user token");
-      }
-      return res.json();
-    }),
-
-  updateUserToken: (tokenId: string, data: any) =>
-    fetch(`/api/admin/tokens/${tokenId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to update user token");
-      }
-      return res.json();
-    }),
-
-  deleteUserToken: (tokenId: string) =>
-    fetch(`/api/admin/tokens/${tokenId}`, {
-      method: "DELETE",
-    }).then(async (res) => {
-      if (!res.ok) throw new Error("Failed to delete user token");
-      return res.json();
-    }),
-
-  regenerateUserToken: (tokenId: string) =>
-    fetch(`/api/admin/tokens/${tokenId}/regenerate`, {
-      method: "POST",
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to regenerate user token");
-      }
-      return res.json();
-    }),
-
-  // Admin - Provider Accounts
-  getProviderAccounts: () =>
-    fetch("/api/admin/provider-accounts").then(async (res) => {
-      if (!res.ok) throw new Error("Failed to fetch provider accounts");
-      return res.json();
-    }),
-
-  createProviderAccount: (data: { username: string; password: string }) =>
-    fetch("/api/admin/provider-accounts", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create provider account");
-      }
-      return res.json();
-    }),
-
-  updateProviderAccount: (accountId: string, data: { username?: string; password?: string; clearSession?: boolean }) =>
-    fetch(`/api/admin/provider-accounts/${accountId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to update provider account");
-      }
-      return res.json();
-    }),
-
-  deleteProviderAccount: (accountId: string) =>
-    fetch(`/api/admin/provider-accounts/${accountId}`, {
-      method: "DELETE",
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to delete provider account");
-      }
-      return res.json();
-    }),
 
   // Admin - Users
   getDiscordUsers: () =>
@@ -672,111 +470,6 @@ export const api = {
     return response.json();
   },
 
-  // Provider - User Tokens
-  providerGetUserTokens: () =>
-    fetch("/api/providers/tokens").then(async (res) => {
-      if (!res.ok) throw new Error("Failed to fetch user tokens");
-      return res.json();
-    }),
-
-  providerCreateUserToken: (data: any) =>
-    fetch("/api/providers/tokens", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create user token");
-      }
-      return res.json();
-    }),
-
-  providerUpdateUserToken: (tokenId: string, data: any) =>
-    fetch(`/api/providers/tokens/${tokenId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to update user token");
-      }
-      return res.json();
-    }),
-
-  providerDeleteUserToken: (tokenId: string) =>
-    fetch(`/api/providers/tokens/${tokenId}`, {
-      method: "DELETE",
-    }).then(async (res) => {
-      if (!res.ok) throw new Error("Failed to delete user token");
-      return res.json();
-    }),
-
-  providerRegenerateUserToken: (tokenId: string) =>
-    fetch(`/api/providers/tokens/${tokenId}/regenerate`, {
-      method: "POST",
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to regenerate user token");
-      }
-      return res.json();
-    }),
-
-  // Provider - Sub-keys
-  providerCreateSubKey: (parentTokenId: string, data: { name: string; maxRPD: number; maxRPM: number; allowedProviders?: string[]; expiresAt?: number }) =>
-    fetch(`/api/providers/tokens/${parentTokenId}/sub-keys`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create sub-key");
-      }
-      return res.json();
-    }),
-
-  providerDeleteSubKey: (subKeyId: string) =>
-    fetch(`/api/providers/sub-keys/${subKeyId}`, {
-      method: "DELETE",
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to delete sub-key");
-      }
-      return res.json();
-    }),
-
-  providerDisableSubKey: (subKeyId: string) =>
-    fetch(`/api/providers/sub-keys/${subKeyId}/disable`, {
-      method: "POST",
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to disable sub-key");
-      }
-      return res.json();
-    }),
-
-  providerEnableSubKey: (subKeyId: string) =>
-    fetch(`/api/providers/sub-keys/${subKeyId}/enable`, {
-      method: "POST",
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to enable sub-key");
-      }
-      return res.json();
-    }),
-
   // User API Key Management
   getUserApiKey: () =>
     fetch("/api/user/api-key", {
@@ -798,6 +491,45 @@ export const api = {
         const error = await res.json();
         throw new Error(error.error || "Failed to rotate API key");
       }
+      return res.json();
+    }),
+
+  // Guild roles
+  getGuildRoles: () =>
+    fetch("/api/guild/roles", { credentials: "include" }).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch guild roles");
+      return res.json();
+    }),
+
+  // User usage
+  getUserUsage: () =>
+    fetch("/api/user/usage", { credentials: "include" }).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch usage");
+      return res.json();
+    }),
+
+  // Admin - User API Key Management
+  adminGetUserApiKey: (userId: string) =>
+    fetch(`/api/admin/users/${userId}/api-key`).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch user API key");
+      return res.json();
+    }),
+
+  adminRotateUserApiKey: (userId: string) =>
+    fetch(`/api/admin/users/${userId}/api-key/rotate`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to rotate user API key");
+      return res.json();
+    }),
+
+  adminUpdateUserApiKeyLimits: (userId: string, maxRPD: number, maxRPM: number) =>
+    fetch(`/api/admin/users/${userId}/api-key`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ maxRPD, maxRPM }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to update rate limits");
       return res.json();
     }),
 

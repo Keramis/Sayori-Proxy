@@ -17,9 +17,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
-import { Copy, RefreshCw, Eye, EyeOff, Key, AlertTriangle } from 'lucide-react';
+import { Copy, RefreshCw, Eye, EyeOff, Key, AlertTriangle, Gauge, BarChart3 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation } from 'wouter';
+import { UserUsageDashboard } from '@/components/UserUsageDashboard';
 
 export default function UserApiKeyManagement() {
   const { user } = useAuth();
@@ -174,6 +175,26 @@ export default function UserApiKeyManagement() {
                   </div>
                 )}
 
+                {/* Rate Limits */}
+                {apiKeyData && (
+                  <div className="pt-4 border-t">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Gauge className="h-4 w-4 text-muted-foreground" />
+                      <h3 className="text-sm font-semibold">Rate Limits</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="rounded-lg border p-3">
+                        <Label className="text-xs text-muted-foreground">Max Requests Per Day</Label>
+                        <p className="text-2xl font-bold tabular-nums">{apiKeyData.maxRPD}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <Label className="text-xs text-muted-foreground">Max Requests Per Minute</Label>
+                        <p className="text-2xl font-bold tabular-nums">{apiKeyData.maxRPM}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Regenerate Button */}
                 <div className="pt-4 border-t">
                   <div className="flex items-start gap-4">
@@ -219,6 +240,22 @@ export default function UserApiKeyManagement() {
                 </div>
               </>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Usage Statistics */}
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Usage Statistics
+            </CardTitle>
+            <CardDescription>
+              Your API usage breakdown by model, provider, and time period.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <UserUsageDashboard />
           </CardContent>
         </Card>
       </main>

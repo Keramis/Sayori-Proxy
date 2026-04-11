@@ -7,7 +7,8 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { ArrowRightLeft, Edit, Trash2, ChevronDown, ChevronRight, Key, Check, X, Search } from "lucide-react";
+import { ArrowRightLeft, Edit, Trash2, ChevronDown, ChevronRight, Key, Check, X, Search, Globe, Lock } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -249,6 +250,36 @@ export function AdminProviderList({ }: AdminProviderListProps) {
                     <Badge variant="outline">
                       {provider.keysCount} keys
                     </Badge>
+                    {provider.visibility === "private" ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge variant="secondary" className="gap-1">
+                              <Lock className="h-3 w-3" />
+                              Private
+                              {provider.allowed_roles && provider.allowed_roles.length > 0 && (
+                                <span className="text-[10px] opacity-70">({provider.allowed_roles.length} roles)</span>
+                              )}
+                            </Badge>
+                          </TooltipTrigger>
+                          {provider.allowed_roles && provider.allowed_roles.length > 0 && (
+                            <TooltipContent side="bottom" className="max-w-xs">
+                              <p className="font-semibold mb-1">Allowed Roles</p>
+                              <div className="flex flex-wrap gap-1">
+                                {provider.allowed_roles.map((role: string) => (
+                                  <span key={role} className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs">{role}</span>
+                                ))}
+                              </div>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Badge variant="secondary" className="gap-1">
+                        <Globe className="h-3 w-3" />
+                        Public
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground font-mono break-all">{provider.baseUrl}</p>
                   <div className="flex items-center gap-2 mt-1">

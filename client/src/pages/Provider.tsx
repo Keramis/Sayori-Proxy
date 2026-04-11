@@ -3,41 +3,24 @@ import { useLocation } from "wouter";
 import { Header } from "@/components/Header";
 import { ProviderProviderForm } from "@/components/ProviderProviderForm";
 import { ProviderProviderList } from "@/components/ProviderProviderList";
-import { ProviderUserTokenForm } from "@/components/ProviderUserTokenForm";
-import { ProviderUserTokenList } from "@/components/ProviderUserTokenList";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShieldAlert, Briefcase } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { DiscordLoginButton } from "@/components/DiscordLoginButton";
-import { cn } from "@/lib/utils";
 
 export default function Provider() {
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading } = useAuth();
-  
-  // Get initial tab from URL query parameter or default to "providers"
-  const getInitialTab = () => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get("tab");
-    const validTabs = ["providers", "tokens"];
-    return tab && validTabs.includes(tab) ? tab : "providers";
-  };
-  
-  const [activeTab, setActiveTab] = useState(getInitialTab);
 
-  // Check if user has provider role
   const roles = user?.roles || [];
   const isProvider = roles.includes("provider");
 
-  // Redirect to home if not authenticated or not a provider
   useEffect(() => {
     if (!isLoading && (!isAuthenticated || !isProvider)) {
-      // Don't redirect immediately, show access denied message
     }
   }, [isLoading, isAuthenticated, isProvider]);
 
-  // Show loading state
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -49,7 +32,6 @@ export default function Provider() {
     );
   }
 
-  // Show login prompt if not authenticated
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -82,7 +64,6 @@ export default function Provider() {
     );
   }
 
-  // Show access denied if authenticated but not a provider
   if (!isProvider) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -115,7 +96,6 @@ export default function Provider() {
     );
   }
 
-  // User is authenticated and has provider role - show dashboard
   return (
     <div className="min-h-screen bg-background">
       <Header hideProviderLogin={true} />
@@ -125,76 +105,25 @@ export default function Provider() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-semibold mb-2">Provider Dashboard</h1>
             <p className="text-muted-foreground text-sm sm:text-base">
-              Manage your providers, API keys, and user tokens
+              Manage your providers and API endpoints
             </p>
           </div>
         </div>
 
         <div className="space-y-6">
-          <div className="flex space-x-1 rounded-xl bg-muted p-1">
-            <button
-              onClick={() => {
-                setActiveTab("providers");
-                navigate("/provider?tab=providers");
-              }}
-              className={cn(
-                "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
-                activeTab === "providers"
-                  ? "bg-background text-foreground shadow"
-                  : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
-              )}
-              data-testid="tab-provider-providers"
-            >
-              Providers
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("tokens");
-                navigate("/provider?tab=tokens");
-              }}
-              className={cn(
-                "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
-                activeTab === "tokens"
-                  ? "bg-background text-foreground shadow"
-                  : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
-              )}
-              data-testid="tab-provider-tokens"
-            >
-              User Tokens
-            </button>
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Add New Provider</h2>
+              <div className="max-w-2xl">
+                <ProviderProviderForm />
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Existing Providers</h2>
+              <ProviderProviderList />
+            </div>
           </div>
-
-          {activeTab === "providers" && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Add New Provider</h2>
-                <div className="max-w-2xl">
-                  <ProviderProviderForm />
-                </div>
-              </div>
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Existing Providers</h2>
-                <ProviderProviderList />
-              </div>
-            </div>
-          )}
-
-          {activeTab === "tokens" && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Create New Token</h2>
-                <div className="max-w-2xl">
-                  <ProviderUserTokenForm />
-                </div>
-              </div>
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Existing Tokens</h2>
-                <ProviderUserTokenList />
-              </div>
-            </div>
-          )}
         </div>
       </main>
     </div>
