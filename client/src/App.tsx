@@ -10,6 +10,7 @@ import Admin from "@/pages/Admin";
 import Provider from "@/pages/Provider";
 import UserApiKeyManagement from "@/pages/UserApiKeyManagement";
 import Banned from "@/pages/Banned";
+import UpdateIp from "@/pages/UpdateIp";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -52,6 +53,7 @@ function Router() {
       <Route path="/provider" component={(props) => <ProtectedRoute {...props} component={Provider} />} />
       <Route path="/api-key" component={(props) => <ProtectedRoute {...props} component={UserApiKeyManagement} />} />
       <Route path="/banned" component={BannedRoute} />
+      <Route path="/update-ip" component={UpdateIp} />
       <Route component={NotFound} />
     </Switch>
   );
