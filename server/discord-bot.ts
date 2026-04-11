@@ -1,5 +1,11 @@
-import { Client, GatewayIntentBits, Guild, GuildMember, Collection } from 'discord.js';
-import { storage } from './storage';
+import {
+  Client,
+  GatewayIntentBits,
+  Guild,
+  GuildMember,
+  Collection,
+} from "discord.js";
+import { storage } from "./storage";
 
 // Export the client so it can be used elsewhere if needed
 export let discordClient: Client | null = null;
@@ -27,20 +33,20 @@ export async function userHasRequiredRole(userId: string): Promise<boolean> {
 
   // If bot is not initialized, allow the user (fail open)
   if (!discordClient || !discordClient.isReady()) {
-    console.warn('[Discord Bot] Bot not ready, allowing user access');
+    console.warn("[Discord Bot] Bot not ready, allowing user access");
     return true;
   }
 
   try {
     const guild = discordClient.guilds.cache.get(GUILD_ID);
     if (!guild) {
-      console.warn('[Discord Bot] Guild not found, allowing user access');
+      console.warn("[Discord Bot] Guild not found, allowing user access");
       return true;
     }
 
     // Fetch the member from the guild
     const member = await guild.members.fetch(userId).catch(() => null);
-    
+
     // If member is not in the guild, they don't have the role
     if (!member) {
       return false;
@@ -49,7 +55,7 @@ export async function userHasRequiredRole(userId: string): Promise<boolean> {
     // Check if member has the required role
     return member.roles.cache.has(USER_ROLE_ID);
   } catch (error) {
-    console.error('[Discord Bot] Error checking user role:', error);
+    console.error("[Discord Bot] Error checking user role:", error);
     // Fail open - allow access if there's an error
     return true;
   }
@@ -59,9 +65,11 @@ export async function userHasRequiredRole(userId: string): Promise<boolean> {
  * Fetch all available roles from the guild.
  * Results are cached for 60 seconds to avoid hitting Discord API on every request.
  */
-export async function fetchGuildRoles(): Promise<Array<{ id: string; name: string }>> {
+export async function fetchGuildRoles(): Promise<
+  Array<{ id: string; name: string }>
+> {
   const now = Date.now();
-  if (cachedRoles && (now - rolesCacheTimestamp) < ROLES_CACHE_TTL_MS) {
+  if (cachedRoles && now - rolesCacheTimestamp < ROLES_CACHE_TTL_MS) {
     return cachedRoles;
   }
 
@@ -73,8 +81,8 @@ export async function fetchGuildRoles(): Promise<Array<{ id: string; name: strin
   if (!guild) return cachedRoles || [];
 
   cachedRoles = guild.roles.cache
-    .filter(role => !role.managed && role.id !== guild.id)
-    .map(role => ({ id: role.id, name: role.name }))
+    .filter((role) => !role.managed && role.id !== guild.id)
+    .map((role) => ({ id: role.id, name: role.name }))
     .sort((a, b) => a.name.localeCompare(b.name));
   rolesCacheTimestamp = now;
 
@@ -90,22 +98,29 @@ export function invalidateRoleCache(): void {
  * Check if a user has ANY of the specified roles.
  * Fails CLOSED (returns false) if the bot is down or the guild is unavailable.
  */
-export async function userHasAnyRole(userId: string, roleIds: string[]): Promise<boolean> {
+export async function userHasAnyRole(
+  userId: string,
+  roleIds: string[],
+): Promise<boolean> {
   if (!discordClient || !discordClient.isReady() || !GUILD_ID) {
-    console.warn('[SECURITY] Bot unavailable during role check — denying access (fail-closed)');
+    console.warn(
+      "[SECURITY] Bot unavailable during role check — denying access (fail-closed)",
+    );
     return false;
   }
 
   const guild = discordClient.guilds.cache.get(GUILD_ID);
   if (!guild) {
-    console.warn('[SECURITY] Guild not found during role check — denying access (fail-closed)');
+    console.warn(
+      "[SECURITY] Guild not found during role check — denying access (fail-closed)",
+    );
     return false;
   }
 
   const member = await guild.members.fetch(userId).catch(() => null);
   if (!member) return false;
 
-  return roleIds.some(roleId => member.roles.cache.has(roleId));
+  return roleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 
 /**
@@ -115,37 +130,42 @@ export async function userHasAnyRole(userId: string, roleIds: string[]): Promise
  */
 export async function syncGuildMembers(): Promise<void> {
   if (!GUILD_ID || !USER_ROLE_ID) {
-    console.log('[Discord Bot] GUILD_ID or USER_ROLE_ID not set, skipping sync');
+    console.log(
+      "[Discord Bot] GUILD_ID or USER_ROLE_ID not set, skipping sync",
+    );
     return;
   }
 
   if (!discordClient || !discordClient.isReady()) {
-    console.error('[Discord Bot] Client not ready, cannot sync members');
+    console.error("[Discord Bot] Client not ready, cannot sync members");
     return;
   }
 
   try {
     const guild = discordClient.guilds.cache.get(GUILD_ID);
     if (!guild) {
-      console.error('[Discord Bot] Guild not found:', GUILD_ID);
+      console.error("[Discord Bot] Guild not found:", GUILD_ID);
       return;
     }
 
-    console.log('[Discord Bot] Starting guild member sync...');
+    console.log("[Discord Bot] Starting guild member sync...");
 
     // Fetch all guild members
-    const members: Collection<string, GuildMember> = await guild.members.fetch();
+    const members: Collection<string, GuildMember> =
+      await guild.members.fetch();
     console.log(`[Discord Bot] Fetched ${members.size} guild members`);
 
     // Create a Set of user IDs who have the required role
     const usersWithRole = new Set<string>();
-    members.forEach(member => {
+    members.forEach((member) => {
       if (member.roles.cache.has(USER_ROLE_ID)) {
         usersWithRole.add(member.id);
       }
     });
 
-    console.log(`[Discord Bot] ${usersWithRole.size} members have the required role`);
+    console.log(
+      `[Discord Bot] ${usersWithRole.size} members have the required role`,
+    );
 
     // Get all Discord users from the database
     const dbUsers = await storage.getDiscordUsers();
@@ -159,30 +179,41 @@ export async function syncGuildMembers(): Promise<void> {
     for (const dbUser of dbUsers) {
       const hasDiscordRole = usersWithRole.has(dbUser.id);
       const currentRoles = dbUser.roles || [];
-      const hasUserRole = currentRoles.includes('user');
+      const hasUserRole = currentRoles.includes("user");
 
       if (hasDiscordRole && !hasUserRole) {
         // User has the Discord role but not the database role - add it
-        const newRoles = [...currentRoles, 'user'] as ('user' | 'provider' | 'admin')[];
+        const newRoles = [...currentRoles, "user"] as (
+          | "user"
+          | "provider"
+          | "admin"
+        )[];
         await storage.updateDiscordUser(dbUser.id, { roles: newRoles });
-        console.log(`[Discord Bot] Added "user" role to ${dbUser.username} (${dbUser.id})`);
+        console.log(
+          `[Discord Bot] Added "user" role to ${dbUser.username} (${dbUser.id})`,
+        );
         addedCount++;
       } else if (!hasDiscordRole && !dbUser.banned) {
         // User doesn't have the Discord role and is not already banned - ban them
-        await storage.banDiscordUser(dbUser.id, "You are not verified on Discord");
-        console.log(`[Discord Bot] Banned user ${dbUser.username} (${dbUser.id}) - not verified on Discord`);
+        await storage.banDiscordUser(
+          dbUser.id,
+          "You are not verified on Discord",
+        );
+        console.log(
+          `[Discord Bot] Banned user ${dbUser.username} (${dbUser.id}) - not verified on Discord`,
+        );
         bannedCount++;
       } else {
         unchangedCount++;
       }
     }
 
-    console.log('[Discord Bot] Sync complete:');
+    console.log("[Discord Bot] Sync complete:");
     console.log(`  - Added "user" role: ${addedCount}`);
     console.log(`  - Banned users: ${bannedCount}`);
     console.log(`  - Unchanged: ${unchangedCount}`);
   } catch (error) {
-    console.error('[Discord Bot] Error syncing guild members:', error);
+    console.error("[Discord Bot] Error syncing guild members:", error);
   }
 }
 
@@ -196,54 +227,59 @@ export async function syncGuildMembers(): Promise<void> {
 export async function initializeDiscordBot(): Promise<void> {
   // Check if required environment variables are set
   if (!GUILD_ID || !DISCORD_BOT_TOKEN) {
-    console.log('[Discord Bot] GUILD_ID or DISCORD_BOT_TOKEN not set, bot will not start');
-    console.log('[Discord Bot] The platform will work without the bot (no role sync)');
+    console.log(
+      "[Discord Bot] GUILD_ID or DISCORD_BOT_TOKEN not set, bot will not start",
+    );
+    console.log(
+      "[Discord Bot] The platform will work without the bot (no role sync)",
+    );
     return;
   }
 
   if (!USER_ROLE_ID) {
-    console.warn('[Discord Bot] USER_ROLE_ID not set, role checking will be disabled');
+    console.warn(
+      "[Discord Bot] USER_ROLE_ID not set, role checking will be disabled",
+    );
   }
 
   try {
-    console.log('[Discord Bot] Initializing Discord bot...');
+    console.log("[Discord Bot] Initializing Discord bot...");
 
     // Create Discord client with necessary intents
     discordClient = new Client({
-      intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers,
-      ],
+      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
     });
 
     // Set up event handlers
-    discordClient.once('ready', async (client) => {
+    discordClient.once("clientReady", async (client) => {
       console.log(`[Discord Bot] Logged in as ${client.user.tag}`);
 
       // Verify bot is in the target guild
       const guild = client.guilds.cache.get(GUILD_ID);
       if (!guild) {
         console.error(`[Discord Bot] Bot is not in guild ${GUILD_ID}`);
-        console.error('[Discord Bot] Please invite the bot to the guild first');
+        console.error("[Discord Bot] Please invite the bot to the guild first");
         return;
       }
 
-      console.log(`[Discord Bot] Connected to guild: ${guild.name} (${guild.id})`);
+      console.log(
+        `[Discord Bot] Connected to guild: ${guild.name} (${guild.id})`,
+      );
       console.log(`[Discord Bot] Guild has ${guild.memberCount} members`);
 
       // Perform initial sync
       await syncGuildMembers();
     });
 
-    discordClient.on('error', (error) => {
-      console.error('[Discord Bot] Client error:', error);
+    discordClient.on("error", (error) => {
+      console.error("[Discord Bot] Client error:", error);
     });
 
     // Login with bot token
     await discordClient.login(DISCORD_BOT_TOKEN);
   } catch (error) {
-    console.error('[Discord Bot] Failed to initialize:', error);
-    console.error('[Discord Bot] The platform will continue without the bot');
+    console.error("[Discord Bot] Failed to initialize:", error);
+    console.error("[Discord Bot] The platform will continue without the bot");
     discordClient = null;
   }
 }
