@@ -1,126 +1,25 @@
-import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { StatCard } from "@/components/StatCard";
-import { Card, CardContent } from "@/components/ui/card";
+import { UsageStatCards } from "./UsageStatCards";
+import { UsageTimeSeriesChart } from "./UsageTimeSeriesChart";
+import { ModelComparisonChart } from "./ModelComparisonChart";
+import { ProviderDonutChart } from "./ProviderDonutChart";
 import { Badge } from "@/components/ui/badge";
+import { Server } from "lucide-react";
 import { api } from "@/lib/api";
-import {
-  CalendarDays,
-  Gauge,
-  BrainCircuit,
-  Server,
-  RefreshCw,
-  Coins,
-  Hash,
-} from "lucide-react";
-
-interface UsageRecord {
-  id: string;
-  discordUserId: string;
-  modelId: string;
-  providerId: string;
-  tokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  timestamp: number;
-  cost: number;
-  modelName?: string;
-  providerName?: string;
-}
+import { RefreshCw } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { UsageRecord } from "@/lib/usage-analytics";
 
 interface UserUsageDashboardProps {
-  /** Admin view: displays a label for the viewed user. The fetch still uses the
-   *  session-based endpoint; swap to an admin-specific endpoint later. */
+  /** Admin view: displays a label for the viewed user. */
   userId?: string;
 }
 
-function startOfTodayUtc(): number {
-  const now = new Date();
-  return Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-  );
-}
-
-function oneMinuteAgo(): number {
-  return Date.now() - 60_000;
-}
-
-function aggregateBy<K extends string>(
-  records: UsageRecord[],
-  keyFn: (r: UsageRecord) => K,
-  labelFn: (r: UsageRecord) => string,
-): Array<{ key: K; label: string; cost: number; requests: number; tokens: number }> {
-  const map = new Map<
-    K,
-    { label: string; cost: number; requests: number; tokens: number }
-  >();
-  for (const r of records) {
-    const k = keyFn(r);
-    const existing = map.get(k);
-    if (existing) {
-      existing.cost += r.cost;
-      existing.requests += 1;
-      existing.tokens += r.tokens;
-    } else {
-      map.set(k, { label: labelFn(r), cost: r.cost, requests: 1, tokens: r.tokens });
-    }
-  }
-  return Array.from(map.entries())
-    .map(([key, v]) => ({ key, ...v }))
-    .sort((a, b) => b.cost - a.cost);
-}
-
-function formatCost(cost: number): string {
-  return cost % 1 === 0 ? cost.toString() : cost.toFixed(2);
-}
-
 export function UserUsageDashboard({ userId }: UserUsageDashboardProps) {
-  const {
-    data: records = [] as UsageRecord[],
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
+  const { data: records = [], isLoading, isError, error } = useQuery<UsageRecord[]>({
     queryKey: ["/api/user/usage"],
     queryFn: api.getUserUsage,
   });
-
-  const todayStart = useMemo(() => startOfTodayUtc(), []);
-  const minuteAgo = useMemo(() => oneMinuteAgo(), []);
-
-  const todayRecords = useMemo(
-    () => records.filter((r) => r.timestamp >= todayStart),
-    [records, todayStart],
-  );
-
-  const minuteRecords = useMemo(
-    () => records.filter((r) => r.timestamp >= minuteAgo),
-    [records, minuteAgo],
-  );
-
-  const todayCost = useMemo(
-    () => todayRecords.reduce((sum, r) => sum + r.cost, 0),
-    [todayRecords],
-  );
-  const todayRequests = todayRecords.length;
-
-  const minuteCost = useMemo(
-    () => minuteRecords.reduce((sum, r) => sum + r.cost, 0),
-    [minuteRecords],
-  );
-  const minuteRequests = minuteRecords.length;
-
-  const modelBreakdown = useMemo(
-    () => aggregateBy(records, (r) => r.modelId, (r) => r.modelName || r.modelId),
-    [records],
-  );
-
-  const providerBreakdown = useMemo(
-    () => aggregateBy(records, (r) => r.providerId, (r) => r.providerName || r.providerId),
-    [records],
-  );
 
   if (isLoading) {
     return (
@@ -152,119 +51,25 @@ export function UserUsageDashboard({ userId }: UserUsageDashboardProps) {
         </div>
       )}
 
-      {/* ── Section 1: Today's Usage ── */}
+      {/* Row 1: Stat Cards */}
       <section>
-        <h2 className="text-xl font-semibold text-primary mb-4 flex items-center gap-2">
-          <CalendarDays className="h-5 w-5" />
-          Today&apos;s Usage
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <StatCard label="Today's Cost" value={formatCost(todayCost)} icon={Coins} />
-          <StatCard label="Today's Requests" value={todayRequests} icon={Hash} />
-          <StatCard
-            label="Today's Tokens"
-            value={todayRecords.reduce((s, r) => s + r.tokens, 0).toLocaleString()}
-            icon={BrainCircuit}
-          />
+        <h2 className="text-xl font-semibold text-primary mb-4">Overview</h2>
+        <UsageStatCards records={records} />
+      </section>
+
+      {/* Row 2: Time Series Chart */}
+      <section>
+        <UsageTimeSeriesChart records={records} />
+      </section>
+
+      {/* Row 3: Bar + Donut side by side */}
+      <section className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-3">
+          <ModelComparisonChart records={records} />
         </div>
-      </section>
-
-      {/* ── Section 2: Minute Usage ── */}
-      <section>
-        <h2 className="text-xl font-semibold text-primary mb-4 flex items-center gap-2">
-          <Gauge className="h-5 w-5" />
-          Last Minute Usage
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <StatCard label="Minute Cost" value={formatCost(minuteCost)} icon={Coins} />
-          <StatCard label="Minute Requests" value={minuteRequests} icon={Hash} />
+        <div className="lg:col-span-2">
+          <ProviderDonutChart records={records} />
         </div>
-      </section>
-
-      {/* ── Section 3: Model Usage Breakdown ── */}
-      <section>
-        <h2 className="text-xl font-semibold text-primary mb-4 flex items-center gap-2">
-          <BrainCircuit className="h-5 w-5" />
-          Model Usage Breakdown
-        </h2>
-        {modelBreakdown.length > 0 ? (
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="px-4 py-3 font-medium">Model</th>
-                      <th className="px-4 py-3 font-medium text-right">Requests</th>
-                      <th className="px-4 py-3 font-medium text-right">Cost</th>
-                      <th className="px-4 py-3 font-medium text-right">Tokens</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {modelBreakdown.map((row) => (
-                      <tr
-                        key={row.key}
-                        className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
-                      >
-                        <td className="px-4 py-3 text-sm">{row.label}</td>
-                        <td className="px-4 py-3 text-right">{row.requests}</td>
-                        <td className="px-4 py-3 text-right">{formatCost(row.cost)}</td>
-                        <td className="px-4 py-3 text-right">{row.tokens.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="p-6 text-center text-muted-foreground">
-            No model usage data available.
-          </Card>
-        )}
-      </section>
-
-      {/* ── Section 4: Provider Usage Breakdown ── */}
-      <section>
-        <h2 className="text-xl font-semibold text-primary mb-4 flex items-center gap-2">
-          <Server className="h-5 w-5" />
-          Provider Usage Breakdown
-        </h2>
-        {providerBreakdown.length > 0 ? (
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="px-4 py-3 font-medium">Provider</th>
-                      <th className="px-4 py-3 font-medium text-right">Requests</th>
-                      <th className="px-4 py-3 font-medium text-right">Cost</th>
-                      <th className="px-4 py-3 font-medium text-right">Tokens</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {providerBreakdown.map((row) => (
-                      <tr
-                        key={row.key}
-                        className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
-                      >
-                        <td className="px-4 py-3 text-sm">{row.label}</td>
-                        <td className="px-4 py-3 text-right">{row.requests}</td>
-                        <td className="px-4 py-3 text-right">{formatCost(row.cost)}</td>
-                        <td className="px-4 py-3 text-right">{row.tokens.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="p-6 text-center text-muted-foreground">
-            No provider usage data available.
-          </Card>
-        )}
       </section>
     </div>
   );

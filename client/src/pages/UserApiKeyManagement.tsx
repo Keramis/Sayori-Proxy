@@ -107,7 +107,7 @@ export default function UserApiKeyManagement() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container mx-auto px-6 py-8 max-w-4xl">
+      <main className="container mx-auto px-6 py-8 max-w-6xl">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">API Key Management</h1>
           <p className="text-muted-foreground">
