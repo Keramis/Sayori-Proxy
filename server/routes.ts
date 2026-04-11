@@ -36,7 +36,7 @@ const adminLoginRateLimit = rateLimit({
   message: "Too many requests!",
   handler: (req, res, next, options) => {
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
-    res.status(options.statusCode).send(options.message);
+    res.status(options.statusCode).json({ error: options.message });
   },
 });
 const adminApiRateLimit = rateLimit({
@@ -47,7 +47,7 @@ const adminApiRateLimit = rateLimit({
   message: "Too many requests!",
   handler: (req, res, next, options) => {
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
-    res.status(options.statusCode).send(options.message);
+    res.status(options.statusCode).json({ error: options.message });
   },
 });
 const chatCompletionsRateLimit = rateLimit({
@@ -58,7 +58,7 @@ const chatCompletionsRateLimit = rateLimit({
   message: "Too many requests!",
   handler: (req, res, next, options) => {
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
-    res.status(options.statusCode).send(options.message);
+    res.status(options.statusCode).json({ error: options.message });
   }
 });
 const authRateLimit = rateLimit({
@@ -69,7 +69,7 @@ const authRateLimit = rateLimit({
   message: "Too many authentication requests!",
   handler: (req, res, next, options) => {
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
-    res.status(options.statusCode).send(options.message);
+    res.status(options.statusCode).json({ error: options.message });
   },
 });
 const userApiKeyRateLimit = rateLimit({
@@ -80,7 +80,7 @@ const userApiKeyRateLimit = rateLimit({
   message: "Too many API key rotation requests. Please wait 5 minutes.",
   handler: (req, res, next, options) => {
     console.error(`Rate limit triggered for IP ${getClientIP(req)} on route: ${req.originalUrl}`);
-    res.status(options.statusCode).send(options.message);
+    res.status(options.statusCode).json({ error: options.message });
   },
 });
 
@@ -685,7 +685,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const usageRecords = await storage.getUsageRecords(session.userId);
-      res.json(usageRecords);
+
+      const allModels = await storage.getModels();
+      const enrichedRecords = await Promise.all(
+        usageRecords.map(async (record) => {
+          const model = allModels.find(m => m.id === record.modelId);
+          const provider = record.providerId
+            ? await storage.getProvider(record.providerId)
+            : undefined;
+          return {
+            ...record,
+            modelName: model?.modelId || 'Unknown',
+            providerName: provider?.name || 'Unknown',
+          };
+        })
+      );
+
+      res.json(enrichedRecords);
     } catch (error: any) {
       console.error("Error fetching user usage:", error);
       res.status(500).json({ error: "Internal server error" });

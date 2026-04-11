@@ -1,10 +1,16 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Header } from '@/components/Header';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Header } from "@/components/Header";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,13 +20,22 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { useToast } from '@/hooks/use-toast';
-import { api } from '@/lib/api';
-import { Copy, RefreshCw, Eye, EyeOff, Key, AlertTriangle, Gauge, BarChart3 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useLocation } from 'wouter';
-import { UserUsageDashboard } from '@/components/UserUsageDashboard';
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
+import {
+  Copy,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  Key,
+  AlertTriangle,
+  Gauge,
+  BarChart3,
+} from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useLocation } from "wouter";
+import { UserUsageDashboard } from "@/components/UserUsageDashboard";
 
 export default function UserApiKeyManagement() {
   const { user } = useAuth();
@@ -32,13 +47,13 @@ export default function UserApiKeyManagement() {
 
   // Redirect if not authenticated
   if (!user) {
-    navigate('/');
+    navigate("/");
     return null;
   }
 
   // Fetch API key
   const { data: apiKeyData, isLoading } = useQuery({
-    queryKey: ['/api/user/api-key'],
+    queryKey: ["/api/user/api-key"],
     queryFn: api.getUserApiKey,
   });
 
@@ -46,18 +61,19 @@ export default function UserApiKeyManagement() {
   const rotateMutation = useMutation({
     mutationFn: api.rotateUserApiKey,
     onSuccess: (data) => {
-      queryClient.setQueryData(['/api/user/api-key'], data);
+      queryClient.setQueryData(["/api/user/api-key"], data);
       toast({
-        title: 'API Key Rotated',
-        description: 'Your API key has been successfully regenerated.',
+        title: "API Key Rotated",
+        description: "Your API key has been successfully regenerated.",
       });
       setIsRegenerateDialogOpen(false);
     },
     onError: (error: any) => {
       toast({
-        title: 'Rotation Failed',
-        description: error.message || 'Failed to rotate API key. Please try again later.',
-        variant: 'destructive',
+        title: "Rotation Failed",
+        description:
+          error.message || "Failed to rotate API key. Please try again later.",
+        variant: "destructive",
       });
     },
   });
@@ -66,8 +82,8 @@ export default function UserApiKeyManagement() {
     if (apiKeyData?.apiKey) {
       navigator.clipboard.writeText(apiKeyData.apiKey);
       toast({
-        title: 'Copied!',
-        description: 'API key copied to clipboard.',
+        title: "Copied!",
+        description: "API key copied to clipboard.",
       });
     }
   };
@@ -78,8 +94,8 @@ export default function UserApiKeyManagement() {
 
   // Censor API key - show first 8 characters, rest as asterisks
   const censoredKey = apiKeyData?.apiKey
-    ? `${apiKeyData.apiKey.substring(0, 8)}${'*'.repeat(apiKeyData.apiKey.length - 8)}`
-    : '••••••••••••••••••••••••••••••••';
+    ? `${apiKeyData.apiKey.substring(0, 8)}${"*".repeat(apiKeyData.apiKey.length - 8)}`
+    : "••••••••••••••••••••••••••••••••";
 
   const displayKey = showKey ? apiKeyData?.apiKey : censoredKey;
 
@@ -106,8 +122,9 @@ export default function UserApiKeyManagement() {
               Your Personal API Key
             </CardTitle>
             <CardDescription>
-              This key is unique to your account and will be used for authentication in the future.
-              Currently, this key is decorative and has no function on the platform.
+              This key is unique to your account and will be used for
+              authentication in the future. Currently, this key is decorative
+              and has no function on the platform.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -132,7 +149,7 @@ export default function UserApiKeyManagement() {
                       variant="outline"
                       size="icon"
                       onClick={() => setShowKey(!showKey)}
-                      title={showKey ? 'Hide key' : 'Show key'}
+                      title={showKey ? "Hide key" : "Show key"}
                     >
                       {showKey ? (
                         <EyeOff className="h-4 w-4" />
@@ -159,14 +176,18 @@ export default function UserApiKeyManagement() {
                 {apiKeyData && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                     <div>
-                      <Label className="text-xs text-muted-foreground">Created At</Label>
+                      <Label className="text-xs text-muted-foreground">
+                        Created At
+                      </Label>
                       <p className="text-sm font-medium">
                         {formatDate(apiKeyData.createdAt)}
                       </p>
                     </div>
                     {apiKeyData.lastRotatedAt && (
                       <div>
-                        <Label className="text-xs text-muted-foreground">Last Rotated</Label>
+                        <Label className="text-xs text-muted-foreground">
+                          Last Rotated
+                        </Label>
                         <p className="text-sm font-medium">
                           {formatDate(apiKeyData.lastRotatedAt)}
                         </p>
@@ -184,25 +205,50 @@ export default function UserApiKeyManagement() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="rounded-lg border p-3">
-                        <Label className="text-xs text-muted-foreground">Max Requests Per Day</Label>
-                        <p className="text-2xl font-bold tabular-nums">{apiKeyData.maxRPD}</p>
+                        <Label className="text-xs text-muted-foreground">
+                          Max Requests Per Day
+                        </Label>
+                        <p className="text-2xl font-bold tabular-nums">
+                          {apiKeyData.maxRPD}
+                        </p>
                       </div>
                       <div className="rounded-lg border p-3">
-                        <Label className="text-xs text-muted-foreground">Max Requests Per Minute</Label>
-                        <p className="text-2xl font-bold tabular-nums">{apiKeyData.maxRPM}</p>
+                        <Label className="text-xs text-muted-foreground">
+                          Max Requests Per Minute
+                        </Label>
+                        <p className="text-2xl font-bold tabular-nums">
+                          {apiKeyData.maxRPM}
+                        </p>
                       </div>
                     </div>
                   </div>
                 )}
+                {/* Warning Notice */}
+                <div className="flex items-start gap-3 p-4 bg-blue-300/10 border bg-blue-300/20 rounded-lg">
+                  <AlertTriangle className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-blue-500">Limits</p>
+                    <p className="text-sm text-muted-foreground">
+                      Currently limits are applied equally to all users equally,
+                      in the future users will have different limits based on
+                      role. These are your global limits on the platform, each
+                      provider has their own rate limits which work separately
+                      from these. Be cognizant of that.
+                    </p>
+                  </div>
+                </div>
 
                 {/* Regenerate Button */}
                 <div className="pt-4 border-t">
                   <div className="flex items-start gap-4">
                     <div className="flex-1">
-                      <h3 className="text-sm font-semibold mb-1">Regenerate API Key</h3>
+                      <h3 className="text-sm font-semibold mb-1">
+                        Regenerate API Key
+                      </h3>
                       <p className="text-sm text-muted-foreground">
-                        Generate a new API key. Your old key will be immediately invalidated.
-                        You can only regenerate your key once every 5 minutes.
+                        Generate a new API key. Your old key will be immediately
+                        invalidated. You can only regenerate your key once every
+                        5 minutes.
                       </p>
                     </div>
                     <Button
@@ -233,8 +279,9 @@ export default function UserApiKeyManagement() {
                       Important Notice
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      This API key is currently decorative and has no function on the platform.
-                      In the future, it will replace provider keys for authentication and tracking purposes.
+                      User API keys are still in beta. If you find any issues,
+                      make sure to report them on Discord via the
+                      #holy-fuck-help-the-world-is-burning channel.
                     </p>
                   </div>
                 </div>
@@ -262,13 +309,17 @@ export default function UserApiKeyManagement() {
 
       {/* Regenerate Confirmation Dialog */}
       {isRegenerateDialogOpen && (
-        <AlertDialog open={isRegenerateDialogOpen} onOpenChange={setIsRegenerateDialogOpen}>
+        <AlertDialog
+          open={isRegenerateDialogOpen}
+          onOpenChange={setIsRegenerateDialogOpen}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Regenerate API Key?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will generate a new API key and immediately invalidate your current key.
-                Any applications using the old key will stop working. This action cannot be undone.
+                This will generate a new API key and immediately invalidate your
+                current key. Any applications using the old key will stop
+                working. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -286,7 +337,7 @@ export default function UserApiKeyManagement() {
                     Regenerating...
                   </>
                 ) : (
-                  'Regenerate Key'
+                  "Regenerate Key"
                 )}
               </AlertDialogAction>
             </AlertDialogFooter>

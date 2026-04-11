@@ -24,6 +24,8 @@ interface UsageRecord {
   outputTokens: number;
   timestamp: number;
   cost: number;
+  modelName?: string;
+  providerName?: string;
 }
 
 interface UserUsageDashboardProps {
@@ -48,18 +50,22 @@ function oneMinuteAgo(): number {
 function aggregateBy<K extends string>(
   records: UsageRecord[],
   keyFn: (r: UsageRecord) => K,
-): Array<{ key: K; cost: number; requests: number; tokens: number }> {
+  labelFn: (r: UsageRecord) => string,
+): Array<{ key: K; label: string; cost: number; requests: number; tokens: number }> {
   const map = new Map<
     K,
-    { cost: number; requests: number; tokens: number }
+    { label: string; cost: number; requests: number; tokens: number }
   >();
   for (const r of records) {
     const k = keyFn(r);
-    const existing = map.get(k) ?? { cost: 0, requests: 0, tokens: 0 };
-    existing.cost += r.cost;
-    existing.requests += 1;
-    existing.tokens += r.tokens;
-    map.set(k, existing);
+    const existing = map.get(k);
+    if (existing) {
+      existing.cost += r.cost;
+      existing.requests += 1;
+      existing.tokens += r.tokens;
+    } else {
+      map.set(k, { label: labelFn(r), cost: r.cost, requests: 1, tokens: r.tokens });
+    }
   }
   return Array.from(map.entries())
     .map(([key, v]) => ({ key, ...v }))
@@ -107,12 +113,12 @@ export function UserUsageDashboard({ userId }: UserUsageDashboardProps) {
   const minuteRequests = minuteRecords.length;
 
   const modelBreakdown = useMemo(
-    () => aggregateBy(records, (r) => r.modelId),
+    () => aggregateBy(records, (r) => r.modelId, (r) => r.modelName || r.modelId),
     [records],
   );
 
   const providerBreakdown = useMemo(
-    () => aggregateBy(records, (r) => r.providerId),
+    () => aggregateBy(records, (r) => r.providerId, (r) => r.providerName || r.providerId),
     [records],
   );
 
@@ -200,7 +206,7 @@ export function UserUsageDashboard({ userId }: UserUsageDashboardProps) {
                         key={row.key}
                         className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
                       >
-                        <td className="px-4 py-3 font-mono text-xs">{row.key}</td>
+                        <td className="px-4 py-3 text-sm">{row.label}</td>
                         <td className="px-4 py-3 text-right">{row.requests}</td>
                         <td className="px-4 py-3 text-right">{formatCost(row.cost)}</td>
                         <td className="px-4 py-3 text-right">{row.tokens.toLocaleString()}</td>
@@ -243,7 +249,7 @@ export function UserUsageDashboard({ userId }: UserUsageDashboardProps) {
                         key={row.key}
                         className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
                       >
-                        <td className="px-4 py-3 font-mono text-xs">{row.key}</td>
+                        <td className="px-4 py-3 text-sm">{row.label}</td>
                         <td className="px-4 py-3 text-right">{row.requests}</td>
                         <td className="px-4 py-3 text-right">{formatCost(row.cost)}</td>
                         <td className="px-4 py-3 text-right">{row.tokens.toLocaleString()}</td>
