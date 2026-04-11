@@ -1,8 +1,7 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import {
   Provider,
   InsertProvider,
@@ -24,11 +23,8 @@ import {
 } from '@shared/schema';
 import { IStorage } from './storage';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 export class SQLiteStorage implements IStorage {
-  private db: Database.Database;
+  private db: Database;
   private activeRequests: number = 0;
   private startTime: number = Date.now();
 
@@ -37,7 +33,7 @@ export class SQLiteStorage implements IStorage {
 
     // Initialize database
     this.db = new Database(databasePath);
-    this.db.pragma('foreign_keys = ON');
+    this.db.exec("PRAGMA foreign_keys = ON");
     this.initializeDatabase();
   }
 
@@ -45,7 +41,7 @@ export class SQLiteStorage implements IStorage {
     try {
       const tableCheck = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='providers'").get();
       if (!tableCheck) {
-        const initScriptPath = path.join(__dirname, 'sqlite-init.sql');
+        const initScriptPath = path.join(process.cwd(), 'server', 'sqlite-init.sql');
         if (fs.existsSync(initScriptPath)) {
           const initScript = fs.readFileSync(initScriptPath, 'utf8');
           console.log('Initializing fresh database...');
@@ -258,8 +254,9 @@ export class SQLiteStorage implements IStorage {
 
     console.log('[MIGRATION] Migrating usage_records: user_token_id → discord_user_id...');
 
-    const fkWasOn = this.db.pragma('foreign_keys', { simple: true }) as boolean;
-    this.db.pragma('foreign_keys = OFF');
+    const fkResult = this.db.query("PRAGMA foreign_keys").get() as { foreign_keys: number } | null;
+    const fkWasOn = fkResult?.foreign_keys === 1;
+    this.db.exec("PRAGMA foreign_keys = OFF");
 
     this.db.exec(`
       DROP TRIGGER IF EXISTS promote_child_usage_on_delete;
@@ -295,7 +292,7 @@ export class SQLiteStorage implements IStorage {
       CREATE INDEX idx_usage_records_timestamp ON usage_records(timestamp);
     `);
 
-    if (fkWasOn) this.db.pragma('foreign_keys = ON');
+    if (fkWasOn) this.db.exec("PRAGMA foreign_keys = ON");
 
     console.log('[MIGRATION] usage_records migration complete.');
   }

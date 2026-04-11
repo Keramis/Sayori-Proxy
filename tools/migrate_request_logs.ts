@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import * as path from 'path';
 
 /**
@@ -12,7 +12,7 @@ console.log('Starting request_logs migration...');
 console.log(`Database path: ${dbPath}`);
 
 const db = new Database(dbPath);
-db.pragma('foreign_keys = OFF');
+db.exec("PRAGMA foreign_keys = OFF");
 
 try {
   // Start transaction
@@ -109,6 +109,6 @@ try {
   db.exec('ROLLBACK');
   throw error;
 } finally {
-  db.pragma('foreign_keys = ON');
+  db.exec("PRAGMA foreign_keys = ON");
   db.close();
 }

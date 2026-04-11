@@ -23,7 +23,7 @@ export function log(message: string, source = "express") {
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    ...(typeof Bun !== "undefined" ? {} : { hmr: { server } }),
     allowedHosts: true as const,
   };
 
@@ -70,8 +70,10 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const distPath = path.resolve(__dirname, "public");
+  // Use process.cwd() instead of import.meta.url because Bun's --bytecode --bundle
+  // preserves the original source path for import.meta.url, which breaks __dirname
+  // resolution when running from dist/index.js
+  const distPath = path.resolve(process.cwd(), "dist", "public");
 
   if (!fs.existsSync(distPath)) {
     throw new Error(
