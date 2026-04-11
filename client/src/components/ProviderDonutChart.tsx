@@ -77,7 +77,7 @@ export function ProviderDonutChart({ records }: ProviderDonutChartProps) {
                   />
                 ))}
               </Pie>
-              <ChartTooltip content={<ChartTooltipContent />} />
+              <ChartTooltip content={<ChartTooltipContent />} followCursor />
               <ChartLegend content={<ChartLegendContent />} />
             </PieChart>
           </ChartContainer>
