@@ -57,22 +57,24 @@ describe('prepareDonutData', () => {
   it('returns empty array for empty input', () => {
     expect(prepareDonutData([])).toEqual([])
   })
-  it('assigns fill colors cycling', () => {
+  it('assigns fill as var(--color-{name})', () => {
     const data = prepareDonutData([
       { name: 'GPT-4', value: 100 },
       { name: 'Claude-3', value: 200 }
     ])
-    expect(data[0].fill).toBe(CHART_COLORS[0])
-    expect(data[1].fill).toBe(CHART_COLORS[1])
+    expect(data[0].fill).toBe('var(--color-GPT-4)')
+    expect(data[1].fill).toBe('var(--color-Claude-3)')
   })
   it('preserves name and value', () => {
     const data = prepareDonutData([{ name: 'Test', value: 42 }])
     expect(data[0].name).toBe('Test')
     expect(data[0].value).toBe(42)
   })
-  it('wraps after 5 items', () => {
+  it('uses var(--color-{name}) pattern for all items', () => {
     const items = [0,1,2,3,4,5].map(i => ({ name: `m${i}`, value: i }))
     const data = prepareDonutData(items)
-    expect(data[5].fill).toBe(CHART_COLORS[0]) // wrapped
+    data.forEach((d, i) => {
+      expect(d.fill).toBe(`var(--color-m${i})`)
+    })
   })
 })

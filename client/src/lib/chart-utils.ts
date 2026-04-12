@@ -35,8 +35,8 @@ export function getInputOutputChartConfig(): ChartConfig {
 export function prepareDonutData(
   items: { name: string; value: number }[]
 ): { name: string; value: number; fill: string }[] {
-  return items.map((item, i) => ({
+  return items.map((item) => ({
     ...item,
-    fill: CHART_COLORS[i % CHART_COLORS.length],
+    fill: `var(--color-${item.name})`,
   }))
 }
