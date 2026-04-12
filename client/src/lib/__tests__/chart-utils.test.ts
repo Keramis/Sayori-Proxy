@@ -3,7 +3,8 @@ import {
   CHART_COLORS, 
   getModelChartConfig, 
   getInputOutputChartConfig, 
-  prepareDonutData 
+  prepareDonutData,
+  toConfigKey
 } from '../chart-utils'
 
 describe('CHART_COLORS', () => {
@@ -12,31 +13,38 @@ describe('CHART_COLORS', () => {
   })
   it('all are CSS var references', () => {
     CHART_COLORS.forEach(c => {
-      expect(c).toMatch(/^var\(--chart-\d+\)$/) // Fixed regex escaping
+      expect(c).toMatch(/^var\(--chart-\d+\)$/)
     })
+  })
+})
+
+describe('toConfigKey', () => {
+  it('returns unchanged string for valid identifiers', () => {
+    expect(toConfigKey('GPT-4')).toBe('GPT-4')
+  })
+  it('replaces slashes and dots with underscores', () => {
+    expect(toConfigKey('x-ai/grok-4.1-fast')).toBe('x-ai_grok-4_1-fast')
+  })
+  it('replaces spaces with underscores', () => {
+    expect(toConfigKey('my model')).toBe('my_model')
   })
 })
 
 describe('getModelChartConfig', () => {
   it('returns empty config for empty array', () => {
-    const config = getModelChartConfig([])
-    expect(Object.keys(config).length).toBe(0)
+    expect(Object.keys(getModelChartConfig([])).length).toBe(0)
   })
-  it('assigns colors cycling through CHART_COLORS', () => {
-    const config = getModelChartConfig(['GPT-4', 'Claude-3', 'Gemini'])
-    expect(config['GPT-4'].color).toBe(CHART_COLORS[0])
-    expect(config['Claude-3'].color).toBe(CHART_COLORS[1])
-    expect(config['Gemini'].color).toBe(CHART_COLORS[2])
+  it('uses sanitized keys for config entries', () => {
+    const config = getModelChartConfig(['x-ai/grok-4.1-fast', 'GPT-4'])
+    expect(config['x-ai_grok-4_1-fast']).toBeDefined()
+    expect(config['x-ai_grok-4_1-fast'].label).toBe('x-ai/grok-4.1-fast')
+    expect(config['x-ai_grok-4_1-fast'].color).toBe(CHART_COLORS[0])
+    expect(config['GPT-4'].color).toBe(CHART_COLORS[1])
   })
-  it('wraps after 5 models (6th gets chart-1)', () => {
+  it('wraps after 5 models', () => {
     const config = getModelChartConfig(['m1', 'm2', 'm3', 'm4', 'm5', 'm6'])
-    expect(config['m6'].color).toBe(CHART_COLORS[0]) // wrapped
+    expect(config['m6'].color).toBe(CHART_COLORS[0])
     expect(config['m1'].color).toBe(CHART_COLORS[0])
-    expect(config['m6'].color).toBe(config['m1'].color) // same color
-  })
-  it('each model has label property', () => {
-    const config = getModelChartConfig(['GPT-4'])
-    expect(config['GPT-4'].label).toBe('GPT-4')
   })
 })
 
@@ -57,24 +65,18 @@ describe('prepareDonutData', () => {
   it('returns empty array for empty input', () => {
     expect(prepareDonutData([])).toEqual([])
   })
-  it('assigns fill as var(--color-{name})', () => {
+  it('wraps fill in hsl() with sanitized key', () => {
     const data = prepareDonutData([
       { name: 'GPT-4', value: 100 },
       { name: 'Claude-3', value: 200 }
     ])
-    expect(data[0].fill).toBe('var(--color-GPT-4)')
-    expect(data[1].fill).toBe('var(--color-Claude-3)')
+    expect(data[0].fill).toBe('hsl(var(--color-GPT-4))')
+    expect(data[1].fill).toBe('hsl(var(--color-Claude-3))')
   })
-  it('preserves name and value', () => {
-    const data = prepareDonutData([{ name: 'Test', value: 42 }])
-    expect(data[0].name).toBe('Test')
-    expect(data[0].value).toBe(42)
-  })
-  it('uses var(--color-{name}) pattern for all items', () => {
-    const items = [0,1,2,3,4,5].map(i => ({ name: `m${i}`, value: i }))
-    const data = prepareDonutData(items)
-    data.forEach((d, i) => {
-      expect(d.fill).toBe(`var(--color-m${i})`)
-    })
+  it('sanitizes name for fill and data key', () => {
+    const data = prepareDonutData([{ name: 'x-ai/grok-4.1-fast', value: 50 }])
+    expect(data[0].name).toBe('x-ai_grok-4_1-fast')
+    expect(data[0].fill).toBe('hsl(var(--color-x-ai_grok-4_1-fast))')
+    expect(data[0].value).toBe(50)
   })
 })

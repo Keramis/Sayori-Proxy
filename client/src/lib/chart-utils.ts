@@ -8,10 +8,16 @@ export const CHART_COLORS = [
   'var(--chart-5)',
 ] as const
 
+/** Convert any string to a valid CSS custom property identifier */
+export function toConfigKey(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
 export function getModelChartConfig(models: string[]): ChartConfig {
   const config: ChartConfig = {}
   models.forEach((model, i) => {
-    config[model] = {
+    const key = toConfigKey(model)
+    config[key] = {
       label: model,
       color: CHART_COLORS[i % CHART_COLORS.length],
     }
@@ -35,8 +41,12 @@ export function getInputOutputChartConfig(): ChartConfig {
 export function prepareDonutData(
   items: { name: string; value: number }[]
 ): { name: string; value: number; fill: string }[] {
-  return items.map((item) => ({
-    ...item,
-    fill: `var(--color-${item.name})`,
-  }))
+  return items.map((item) => {
+    const key = toConfigKey(item.name)
+    return {
+      ...item,
+      name: key,
+      fill: `hsl(var(--color-${key}))`,
+    }
+  })
 }
