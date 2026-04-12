@@ -13,6 +13,7 @@ vi.mock("recharts", async (importOriginal) => {
     LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     CartesianGrid: noop,
     XAxis: noop,
+    YAxis: noop,
     Line: noop,
     Tooltip: noop,
     Legend: noop,

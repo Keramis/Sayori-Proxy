@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CartesianGrid, Line, LineChart, XAxis } from "recharts"
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 import {
   Card,
   CardContent,
@@ -89,6 +89,11 @@ export function UsageOverTimeChart({ records }: UsageOverTimeChartProps) {
             }}
           >
             <CartesianGrid vertical={false} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(value) => value.toLocaleString()}
+            />
             <XAxis
               dataKey="date"
               tickLine={false}
@@ -120,7 +125,7 @@ export function UsageOverTimeChart({ records }: UsageOverTimeChartProps) {
             <Line
               dataKey={activeChart}
               type="monotone"
-              stroke={`var(--color-${activeChart})`}
+              stroke={`hsl(var(--color-${activeChart}))`}
               strokeWidth={2}
               dot={false}
             />

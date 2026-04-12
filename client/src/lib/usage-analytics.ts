@@ -284,6 +284,7 @@ export function todayInputOutputSplit(records: UsageRecord[]): { input: number; 
 }
 
 export function aggregateByDayLast30(records: UsageRecord[]): { date: string; requests: number; tokens: number; inputTokens: number; outputTokens: number }[] {
+  const now = new Date()
   const thirtyDaysAgo = Date.now() - 30 * 86400000
   const recent = records.filter(r => r.timestamp >= thirtyDaysAgo)
   const map = new Map<string, { requests: number; tokens: number; inputTokens: number; outputTokens: number }>()
@@ -297,7 +298,13 @@ export function aggregateByDayLast30(records: UsageRecord[]): { date: string; re
       outputTokens: existing.outputTokens + r.outputTokens
     })
   }
-  return Array.from(map.entries())
-    .map(([date, stats]) => ({ date, ...stats }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  const allDays: { date: string; requests: number; tokens: number; inputTokens: number; outputTokens: number }[] = []
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now)
+    d.setDate(d.getDate() - i)
+    const dateStr = d.toISOString().split('T')[0]
+    const stats = map.get(dateStr) ?? { requests: 0, tokens: 0, inputTokens: 0, outputTokens: 0 }
+    allDays.push({ date: dateStr, ...stats })
+  }
+  return allDays
 }
