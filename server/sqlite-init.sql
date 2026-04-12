@@ -28,7 +28,9 @@ CREATE TABLE providers (
     disable_cache_discount INTEGER DEFAULT 0,
     owner_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'public',
-    allowed_roles TEXT -- JSON array of Discord role IDs, NULL for public
+    allowed_roles TEXT, -- JSON array of Discord role IDs, NULL for public
+    max_rpd INTEGER,
+    max_rpm INTEGER
 );
 
 CREATE TABLE api_keys (

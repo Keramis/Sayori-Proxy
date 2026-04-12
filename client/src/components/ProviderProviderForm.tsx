@@ -34,6 +34,9 @@ export function ProviderProviderForm({ editProvider, onEditComplete, onSearchCha
   const [modelSearch, setModelSearch] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [allowedRoles, setAllowedRoles] = useState<string[]>([]);
+  const [maxRPD, setMaxRPD] = useState<string>("");
+  const [maxRPM, setMaxRPM] = useState<string>("");
+  const [providerUsage, setProviderUsage] = useState<any>(null);
 
   const providerId = editProvider?.id;
 
@@ -48,11 +51,21 @@ export function ProviderProviderForm({ editProvider, onEditComplete, onSearchCha
           ? JSON.stringify(editProvider.customHeaders, null, 2)
           : ""
       );
+      // Initialize rate limits
+      setMaxRPD(editProvider.maxRPD?.toString() || "");
+      setMaxRPM(editProvider.maxRPM?.toString() || "");
+      
       // Fetch keys
       api.providerGetProviderKeys(editProvider.id).then((keys: any[]) => {
         setApiKeys(keys.map((k) => k.key));
         setApiKeyIds(keys.map((k) => k.id));
       });
+      
+      // Fetch usage
+      api.providerGetUsage(editProvider.id)
+        .then(setProviderUsage)
+        .catch(() => setProviderUsage(null));
+      
       setVisibility(editProvider.visibility || "public");
       setAllowedRoles(editProvider.allowedRoles || []);
     } else {
@@ -66,6 +79,9 @@ export function ProviderProviderForm({ editProvider, onEditComplete, onSearchCha
       setModelCount(null);
       setVisibility("public");
       setAllowedRoles([]);
+      setMaxRPD("");
+      setMaxRPM("");
+      setProviderUsage(null);
     }
   }, [editProvider]);
 
@@ -161,6 +177,8 @@ export function ProviderProviderForm({ editProvider, onEditComplete, onSearchCha
         disableCacheDiscount,
         visibility,
         allowedRoles: visibility === "private" ? allowedRoles : undefined,
+        maxRPD: maxRPD ? parseInt(maxRPD) : null,
+        maxRPM: maxRPM ? parseInt(maxRPM) : null,
       };
 
       if (editProvider) {
@@ -258,6 +276,51 @@ export function ProviderProviderForm({ editProvider, onEditComplete, onSearchCha
             Cached requests will NOT receive a 90% cost discount for this provider
           </p>
         )}
+
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-lg font-medium mb-3">Rate Limits</h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="max-rpd">Max Requests Per Day (RPD)</Label>
+                <Input
+                  id="max-rpd"
+                  type="number"
+                  placeholder="Unlimited"
+                  value={maxRPD}
+                  onChange={(e) => setMaxRPD(e.target.value)}
+                  className="w-full"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Leave empty for unlimited. Counts all users combined.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="max-rpm">Max Requests Per Minute (RPM)</Label>
+                <Input
+                  id="max-rpm"
+                  type="number"
+                  placeholder="Unlimited"
+                  value={maxRPM}
+                  onChange={(e) => setMaxRPM(e.target.value)}
+                  className="w-full"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Leave empty for unlimited. Counts all users combined.
+                </p>
+              </div>
+              
+              {providerUsage && (
+                <div className="p-3 bg-muted rounded-md">
+                  <p className="text-sm font-medium">
+                    Current: {providerUsage.todayUsage} today / {providerUsage.minuteUsage} this minute
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
         <div className="space-y-2">
           <Label htmlFor="custom-headers">Custom Headers (JSON)</Label>

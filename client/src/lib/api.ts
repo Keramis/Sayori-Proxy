@@ -101,6 +101,12 @@ export const api = {
       return res.json();
     }),
 
+  providerGetUsage: (id: string) =>
+    fetch(`/api/providers/${id}/usage`).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch provider usage");
+      return res.json();
+    }),
+
   // Admin - API Keys
   getProviderKeys: (providerId: string) =>
     fetch(`/api/admin/providers/${providerId}/keys`).then(async (res) => {
@@ -530,6 +536,12 @@ export const api = {
       body: JSON.stringify({ maxRPD, maxRPM }),
     }).then(async (res) => {
       if (!res.ok) throw new Error("Failed to update rate limits");
+      return res.json();
+    }),
+
+  adminGetProviderUsage: (providerId: string) =>
+    fetch(`/api/admin/providers/${providerId}/usage`).then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch provider usage");
       return res.json();
     }),
 

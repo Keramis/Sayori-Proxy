@@ -12,6 +12,8 @@ export interface Provider {
   ownerId?: string;
   visibility: "public" | "private";
   allowedRoles?: string[];
+  maxRPD?: number | null;
+  maxRPM?: number | null;
 }
 
 export const insertProviderSchema = z.object({
@@ -23,6 +25,8 @@ export const insertProviderSchema = z.object({
   ownerId: z.string().optional(),
   visibility: z.enum(["public", "private"]).default("public"),
   allowedRoles: z.array(z.string()).nullable().optional(),
+  maxRPD: z.number().int().nullable().optional(),
+  maxRPM: z.number().int().nullable().optional(),
 });
 
 export type InsertProvider = z.infer<typeof insertProviderSchema>;

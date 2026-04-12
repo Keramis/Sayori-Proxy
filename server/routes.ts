@@ -1136,6 +1136,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
+  app.get(
+    "/api/providers/:id/usage",
+    await requireRole("provider"),
+    async (req: Request, res: Response) => {
+      const discordUser = (req as any).discordUser;
+      const provider = await storage.getProvider(req.params.id);
+      if (!provider) {
+        return res.status(404).json({ error: "Provider not found" });
+      }
+      if (provider.ownerId !== discordUser.id) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const [todayUsage, minuteUsage] = await Promise.all([
+        storage.getProviderTodayUsageCount(provider.id),
+        storage.getProviderMinuteUsageCount(provider.id),
+      ]);
+      res.json({
+        providerId: provider.id,
+        todayUsage,
+        minuteUsage,
+        maxRPD: provider.maxRPD ?? null,
+        maxRPM: provider.maxRPM ?? null,
+      });
+    },
+  );
+
   // ========================================
   // Provider API Keys
   // ========================================
@@ -1760,6 +1786,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       const success = await storage.deleteProvider(req.params.id);
       res.json({ success });
+    },
+  );
+
+  app.get(
+    "/api/admin/providers/:id/usage",
+    await requireRole("admin"),
+    async (req: Request, res: Response) => {
+      const provider = await storage.getProvider(req.params.id);
+      if (!provider) {
+        return res.status(404).json({ error: "Provider not found" });
+      }
+      const [todayUsage, minuteUsage] = await Promise.all([
+        storage.getProviderTodayUsageCount(provider.id),
+        storage.getProviderMinuteUsageCount(provider.id),
+      ]);
+      res.json({
+        providerId: provider.id,
+        todayUsage,
+        minuteUsage,
+        maxRPD: provider.maxRPD ?? null,
+        maxRPM: provider.maxRPM ?? null,
+      });
     },
   );
 
@@ -2480,6 +2528,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
             targetModel.id,
             provider.id,
           );
+        }
+
+        // Provider-level RPD rate limit check
+        if (
+          provider.maxRPD !== null &&
+          provider.maxRPD !== undefined &&
+          provider.maxRPD > 0
+        ) {
+          const providerTodayUsage =
+            await storage.getProviderTodayUsageCount(provider.id);
+          if (providerTodayUsage >= provider.maxRPD) {
+            return safeSendError(
+              429,
+              "Provider daily request limit exceeded",
+              targetModel.id,
+              provider.id,
+            );
+          }
+        }
+
+        // Provider-level RPM rate limit check
+        if (
+          provider.maxRPM !== null &&
+          provider.maxRPM !== undefined &&
+          provider.maxRPM > 0
+        ) {
+          const providerMinuteUsage =
+            await storage.getProviderMinuteUsageCount(provider.id);
+          if (providerMinuteUsage >= provider.maxRPM) {
+            return safeSendError(
+              429,
+              "Provider per-minute request limit exceeded",
+              targetModel.id,
+              provider.id,
+            );
+          }
         }
 
         const apiKey = await storage.getNextApiKey(provider.id);

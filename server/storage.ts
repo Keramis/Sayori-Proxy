@@ -51,6 +51,8 @@ export interface IStorage {
   getUsageRecords(discordUserId: string): Promise<UsageRecord[]>;
   getTodayUsageCount(discordUserId: string): Promise<number>;
   getMinuteUsageCount(discordUserId: string): Promise<number>;
+  getProviderTodayUsageCount(providerId: string): Promise<number>;
+  getProviderMinuteUsageCount(providerId: string): Promise<number>;
 
   // Stats methods
   getStats(): Promise<Stats>;
