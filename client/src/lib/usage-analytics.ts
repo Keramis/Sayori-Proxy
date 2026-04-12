@@ -251,3 +251,53 @@ export function computeSummaryStats(records: UsageRecord[]): SummaryStats {
     minuteCost,
   };
 }
+
+export function filterToday(records: UsageRecord[]): UsageRecord[] {
+  const startOfToday = startOfTodayUtc()
+  return records.filter(r => r.timestamp >= startOfToday)
+}
+
+export function aggregateTodayByModel(records: UsageRecord[]): { model: string; requests: number }[] {
+  const today = filterToday(records)
+  const map = new Map<string, number>()
+  for (const r of today) {
+    const key = r.modelName ?? r.modelId
+    map.set(key, (map.get(key) ?? 0) + 1)
+  }
+  return Array.from(map.entries())
+    .map(([model, requests]) => ({ model, requests }))
+    .sort((a, b) => b.requests - a.requests)
+}
+
+export function totalInputOutputSplit(records: UsageRecord[]): { input: number; output: number } {
+  let input = 0
+  let output = 0
+  for (const r of records) {
+    input += r.inputTokens
+    output += r.outputTokens
+  }
+  return { input, output }
+}
+
+export function todayInputOutputSplit(records: UsageRecord[]): { input: number; output: number } {
+  return totalInputOutputSplit(filterToday(records))
+}
+
+export function aggregateByDayLast30(records: UsageRecord[]): { date: string; requests: number; tokens: number; inputTokens: number; outputTokens: number }[] {
+  const thirtyDaysAgo = Date.now() - 30 * 86400000
+  const recent = records.filter(r => r.timestamp >= thirtyDaysAgo)
+  const map = new Map<string, { requests: number; tokens: number; inputTokens: number; outputTokens: number }>()
+  for (const r of recent) {
+    const dateStr = new Date(r.timestamp).toISOString().split('T')[0]
+    const existing = map.get(dateStr) ?? { requests: 0, tokens: 0, inputTokens: 0, outputTokens: 0 }
+    map.set(dateStr, {
+      requests: existing.requests + 1,
+      tokens: existing.tokens + r.tokens,
+      inputTokens: existing.inputTokens + r.inputTokens,
+      outputTokens: existing.outputTokens + r.outputTokens
+    })
+  }
+  return Array.from(map.entries())
+    .map(([date, stats]) => ({ date, ...stats }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
