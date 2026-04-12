@@ -39,10 +39,10 @@ export function UserUsageDashboard() {
     todayTokens,
   } = useMemo(() => {
     const byModel = aggregateByModel(records);
-    const models = byModel.map((m) => m.model);
+    const models = byModel.map((m) => m.modelName);
     const totalRequestsConfig = getModelChartConfig(models);
     const totalRequestsData = prepareDonutData(
-      byModel.map((m) => ({ name: m.model, value: m.requests }))
+      byModel.map((m) => ({ name: m.modelName, value: m.requests }))
     );
     const totalRequests = byModel.reduce((acc, m) => acc + m.requests, 0);
 

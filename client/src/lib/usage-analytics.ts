@@ -3,8 +3,8 @@ import { format } from "date-fns";
 export interface UsageRecord {
   id: string;
   discordUserId: string;
-  modelId: string;
-  providerId: string;
+  modelId: string | null;
+  providerId: string | null;
   tokens: number;
   inputTokens: number;
   outputTokens: number;
@@ -31,7 +31,7 @@ export interface DailyBucket {
 }
 
 export interface ModelBreakdown {
-  modelId: string;
+  modelId: string | null;
   modelName: string;
   requests: number;
   cost: number;
