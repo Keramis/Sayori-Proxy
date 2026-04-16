@@ -100,6 +100,7 @@ export class SQLiteStorage implements IStorage {
       this.ensureRequestLogsTable();
       this.ensureUserApiKeysTable();
       this.ensureUsageRecordsDiscordUserId();
+      this.ensureUsageRecordsNullableUserId();
       this.ensureUsageRecordsProviderTimestampIndex();
     } catch (error) {
       console.error("Error initializing database:", error);
@@ -205,6 +206,55 @@ export class SQLiteStorage implements IStorage {
         "CREATE INDEX idx_usage_records_provider_timestamp ON usage_records(provider_id, timestamp)",
       );
     }
+  }
+
+  // Migrate usage_records.discord_user_id from NOT NULL to nullable (allows ON DELETE SET NULL to work)
+  private ensureUsageRecordsNullableUserId(): void {
+    const tableCheck = this.db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='usage_records'",
+      )
+      .get();
+    if (!tableCheck) {
+      return;
+    }
+    const columns = this.db
+      .prepare("PRAGMA table_info(usage_records)")
+      .all() as { name: string; notnull: number }[];
+    const discordCol = columns.find((col) => col.name === "discord_user_id");
+    if (!discordCol || discordCol.notnull === 0) {
+      return; // Already nullable
+    }
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS usage_records_new AS SELECT * FROM usage_records",
+    );
+    this.db.exec("DROP TABLE usage_records");
+    this.db.exec(`
+      CREATE TABLE usage_records (
+        id TEXT PRIMARY KEY,
+        discord_user_id TEXT,
+        model_id TEXT,
+        provider_id TEXT,
+        tokens INTEGER DEFAULT 0,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        timestamp INTEGER NOT NULL,
+        cost REAL NOT NULL DEFAULT 1.0,
+        FOREIGN KEY (discord_user_id) REFERENCES discord_users(id) ON DELETE SET NULL,
+        FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+        FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
+      )
+    `);
+    this.db.exec(
+      "INSERT INTO usage_records SELECT id, discord_user_id, model_id, provider_id, tokens, input_tokens, output_tokens, timestamp, cost FROM usage_records_new",
+    );
+    this.db.exec("DROP TABLE usage_records_new");
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_usage_records_discord_user_id ON usage_records(discord_user_id)",
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_usage_records_timestamp ON usage_records(timestamp)",
+    );
   }
 
   private ensureDiscordUserIpColumns(): void {
@@ -333,7 +383,7 @@ export class SQLiteStorage implements IStorage {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS usage_records (
           id TEXT PRIMARY KEY,
-          discord_user_id TEXT NOT NULL,
+          discord_user_id TEXT,
           model_id TEXT,
           provider_id TEXT,
           tokens INTEGER DEFAULT 0,
@@ -1687,6 +1737,48 @@ export class SQLiteStorage implements IStorage {
       return row ? this.rowToUserApiKey(row) : undefined;
     } catch (error) {
       console.error("Error updating user API key rate limits:", error);
+      throw error;
+    }
+  }
+
+  // User deletion / IP anonymization
+  // LGPD/GDPR right to erasure: replaces IP addresses with one-way irreversible hashes
+  // and severs the user link in request_logs. The salt is never stored, making the hash
+  // irreversible even internally. All updates run in a single transaction for SQLite performance.
+  async scrubUserData(userId: string): Promise<void> {
+    const scrubUser = this.db.transaction(() => {
+      // Deduplicate IPs first: hash each unique IP once, then bulk-update
+      const rows = this.db
+        .prepare(
+          "SELECT DISTINCT ip FROM request_logs WHERE discord_user_id = ?",
+        )
+        .all(userId) as { ip: string }[];
+
+      const ipMap = new Map<string, string>();
+      for (const { ip } of rows) {
+        const salt = crypto.getRandomValues(new Uint8Array(32));
+        const hasher = new Bun.CryptoHasher("sha256");
+        hasher.update(Buffer.from(salt).toString("hex") + ip);
+        ipMap.set(ip, hasher.digest("hex"));
+      }
+
+      const update = this.db.prepare(
+        "UPDATE request_logs SET ip = ?, discord_user_id = NULL WHERE discord_user_id = ? AND ip = ?",
+      );
+      for (const [original, hashed] of ipMap) {
+        update.run(hashed, userId, original);
+      }
+    });
+
+    scrubUser();
+  }
+
+  async deleteDiscordUser(userId: string): Promise<void> {
+    try {
+      const stmt = this.db.prepare("DELETE FROM discord_users WHERE id = ?");
+      stmt.run(userId);
+    } catch (error) {
+      console.error("Error deleting Discord user:", error);
       throw error;
     }
   }

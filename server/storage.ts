@@ -89,6 +89,10 @@ export interface IStorage {
   createUserApiKey(userId: string): Promise<UserApiKey>;
   rotateUserApiKey(id: string): Promise<UserApiKey | undefined>;
   updateUserApiKeyRateLimits(id: string, maxRPD: number, maxRPM: number): Promise<UserApiKey | undefined>;
+
+  // User deletion / IP anonymization
+  scrubUserData(userId: string): Promise<void>;
+  deleteDiscordUser(userId: string): Promise<void>;
 }
 
 import { SQLiteStorage } from './sqlite-storage';

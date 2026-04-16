@@ -259,6 +259,17 @@ export const api = {
       return res.json();
     }),
 
+  deleteUser: (userId: string) =>
+    fetch(`/api/admin/users/${userId}`, {
+      method: "DELETE",
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete user");
+      }
+      return res.json();
+    }),
+
   updateUserRoles: (userId: string, roles: string[]) =>
     fetch(`/api/admin/users/${userId}/roles`, {
       method: "POST",
