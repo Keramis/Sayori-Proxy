@@ -249,7 +249,7 @@ export default function Dashboard() {
 
       <main className="container mx-auto px-6 py-8">
         <div className="text-center mb-12">
-          <h1 className="font-script text-6xl mb-4 christmas-gradient-text drop-shadow-md pb-2">Sayori Proxy</h1>
+          <h1 className="font-script text-6xl mb-4 christmas-gradient-text pb-2" style={{ textShadow: '0 4px 3px rgba(0, 0, 0, 0.07), 0 2px 2px rgba(0, 0, 0, 0.06)' }}>Sayori Proxy</h1>
           <p className="text-muted-foreground text-lg mb-6">
             Router that will never leave you hanging.
           </p>
