@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowRightLeft, Edit, Trash2, ChevronDown, ChevronRight, Key, Check, X } from "lucide-react";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { ArrowRightLeft, Edit, Trash2, ChevronDown, ChevronRight, Key, Check, X, Search, Globe, Lock } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -24,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Edit2 } from "lucide-react";
 import { AdminProviderForm } from "./AdminProviderForm";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface AdminProviderListProps { }
 
@@ -36,8 +39,30 @@ export function AdminProviderList({ }: AdminProviderListProps) {
   const [modelSearchMap, setModelSearchMap] = useState<Map<string, string>>(new Map());
   const [searchQuery, setSearchQuery] = useState("");
   const [assigningProvider, setAssigningProvider] = useState<any>(null);
-  const [assignUsername, setAssignUsername] = useState("");
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [selectedUser, setSelectedUser] = useState<any>(null);
   const [assignLoading, setAssignLoading] = useState(false);
+
+  // Fetch Discord users for assignment
+  const { data: discordUsers = [] } = useQuery({
+    queryKey: ["/api/admin/users"],
+    queryFn: () => api.getDiscordUsers(),
+    enabled: !!assigningProvider, // Only fetch when dialog is open
+  });
+
+  // Filter users based on search query (fuzzy search on username and ID)
+  const filteredUsers = useMemo(() => {
+    if (!userSearchQuery.trim()) return discordUsers;
+    
+    const query = userSearchQuery.toLowerCase();
+    return discordUsers.filter((user: any) => {
+      const username = (user.username || "").toLowerCase();
+      const globalName = (user.globalName || "").toLowerCase();
+      const id = (user.id || "").toLowerCase();
+      
+      return username.includes(query) || globalName.includes(query) || id.includes(query);
+    });
+  }, [discordUsers, userSearchQuery]);
 
   const { data: providersData, isLoading } = useQuery({
     queryKey: ["/api/admin/providers"],
@@ -113,21 +138,21 @@ export function AdminProviderList({ }: AdminProviderListProps) {
 
   const openAssignDialog = (provider: any) => {
     setAssigningProvider(provider);
-    setAssignUsername("");
+    setUserSearchQuery("");
+    setSelectedUser(null);
   };
 
   const closeAssignDialog = () => {
     setAssigningProvider(null);
-    setAssignUsername("");
+    setUserSearchQuery("");
+    setSelectedUser(null);
   };
 
   const handleAssignOwner = async () => {
-    if (!assigningProvider) return;
-    const trimmedUsername = assignUsername.trim();
-    if (!trimmedUsername) {
+    if (!assigningProvider || !selectedUser) {
       toast({
-        title: "Username Required",
-        description: "Enter a provider account username to assign.",
+        title: "User Required",
+        description: "Please select a Discord user to assign.",
         variant: "destructive",
       });
       return;
@@ -135,11 +160,11 @@ export function AdminProviderList({ }: AdminProviderListProps) {
 
     setAssignLoading(true);
     try {
-      const result = await api.assignProviderOwner(assigningProvider.id, trimmedUsername);
+      const result = await api.assignProviderOwner(assigningProvider.id, selectedUser.id);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/providers"] });
       toast({
         title: "Provider Assigned",
-        description: `Assigned to ${trimmedUsername}${result?.deletedTokens ? ` · ${result.deletedTokens} token${result.deletedTokens === 1 ? "" : "s"} cleared` : ""}`,
+        description: `Assigned to ${selectedUser.globalName || selectedUser.username}${result?.deletedTokens ? ` · ${result.deletedTokens} token${result.deletedTokens === 1 ? "" : "s"} cleared` : ""}`,
       });
       closeAssignDialog();
     } catch (error: any) {
@@ -213,9 +238,9 @@ export function AdminProviderList({ }: AdminProviderListProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-semibold text-lg" data-testid={`provider-name-${provider.id}`}>
                       {provider.name}
                     </h3>
@@ -225,14 +250,60 @@ export function AdminProviderList({ }: AdminProviderListProps) {
                     <Badge variant="outline">
                       {provider.keysCount} keys
                     </Badge>
+                    {provider.visibility === "private" ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge variant="secondary" className="gap-1">
+                              <Lock className="h-3 w-3" />
+                              Private
+                              {provider.allowed_roles && provider.allowed_roles.length > 0 && (
+                                <span className="text-[10px] opacity-70">({provider.allowed_roles.length} roles)</span>
+                              )}
+                            </Badge>
+                          </TooltipTrigger>
+                          {provider.allowed_roles && provider.allowed_roles.length > 0 && (
+                            <TooltipContent side="bottom" className="max-w-xs">
+                              <p className="font-semibold mb-1">Allowed Roles</p>
+                              <div className="flex flex-wrap gap-1">
+                                {provider.allowed_roles.map((role: string) => (
+                                  <span key={role} className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs">{role}</span>
+                                ))}
+                              </div>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Badge variant="secondary" className="gap-1">
+                        <Globe className="h-3 w-3" />
+                        Public
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground font-mono break-all">{provider.baseUrl}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Owner: {provider.ownerUsername || "Unassigned"}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    {provider.ownerInfo ? (
+                      <>
+                        <Avatar className="h-5 w-5">
+                          <AvatarImage src={provider.ownerInfo.avatarUrl} alt={provider.ownerInfo.username} />
+                          <AvatarFallback className="text-[10px]">
+                            {provider.ownerInfo.username.substring(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-xs text-muted-foreground">
+                          Owner: {provider.ownerInfo.globalName || provider.ownerInfo.username}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Owner: Unassigned
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3 flex-shrink-0">
+                <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={provider.enabled}
@@ -243,30 +314,32 @@ export function AdminProviderList({ }: AdminProviderListProps) {
                       {provider.enabled ? "Enabled" : "Disabled"}
                     </span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => openAssignDialog(provider)}
-                    data-testid={`button-assign-${provider.id}`}
-                  >
-                    <ArrowRightLeft className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setEditingProvider(provider)}
-                    data-testid={`button-edit-${provider.id}`}
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteProvider(provider.id)}
-                    data-testid={`button-delete-${provider.id}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openAssignDialog(provider)}
+                      data-testid={`button-assign-${provider.id}`}
+                    >
+                      <ArrowRightLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setEditingProvider(provider)}
+                      data-testid={`button-edit-${provider.id}`}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteProvider(provider.id)}
+                      data-testid={`button-delete-${provider.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -320,24 +393,64 @@ export function AdminProviderList({ }: AdminProviderListProps) {
       )}
 
       <Dialog open={!!assigningProvider} onOpenChange={(open) => !open && closeAssignDialog()}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Assign Provider Account</DialogTitle>
+            <DialogTitle>Assign Provider Owner</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="assign-provider-username">Provider Account Username</Label>
-              <Input
-                id="assign-provider-username"
-                placeholder="e.g., provider_team"
-                value={assignUsername}
-                onChange={(e) => setAssignUsername(e.target.value)}
-              />
+              <Label htmlFor="user-search">Search Discord Users</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="user-search"
+                  placeholder="Search by username or Discord ID..."
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
             </div>
+            
+            <div className="space-y-2">
+              <Label>Select User</Label>
+              <ScrollArea className="h-[300px] border rounded-md">
+                <div className="p-2 space-y-1">
+                  {filteredUsers.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      {userSearchQuery ? "No users found matching your search" : "No users available"}
+                    </div>
+                  ) : (
+                    filteredUsers.map((user: any) => (
+                      <button
+                        key={user.id}
+                        onClick={() => setSelectedUser(user)}
+                        className={`w-full flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors ${
+                          selectedUser?.id === user.id ? "bg-accent border-2 border-primary" : "border border-transparent"
+                        }`}
+                      >
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={user.avatarUrl} alt={user.username} />
+                          <AvatarFallback>{user.username.substring(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 text-left">
+                          <div className="font-medium">{user.globalName || user.username}</div>
+                          <div className="text-xs text-muted-foreground">@{user.username} • {user.id}</div>
+                        </div>
+                        {selectedUser?.id === user.id && (
+                          <Check className="h-5 w-5 text-primary" />
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+            
             <Button
               className="w-full"
               onClick={handleAssignOwner}
-              disabled={assignLoading}
+              disabled={assignLoading || !selectedUser}
             >
               {assignLoading ? "Assigning..." : "Assign Provider"}
             </Button>

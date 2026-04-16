@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Header } from "@/components/Header";
 import { AdminProviderForm } from "@/components/AdminProviderForm";
 import { AdminProviderList } from "@/components/AdminProviderList";
-import { AdminUserTokenForm } from "@/components/AdminUserTokenForm";
-import { AdminUserTokenList } from "@/components/AdminUserTokenList";
-import { AdminProviderAccountForm } from "@/components/AdminProviderAccountForm";
-import { AdminProviderAccountList } from "@/components/AdminProviderAccountList";
+import { AdminUserList } from "@/components/AdminUserList";
+import { AdminLogList } from "@/components/AdminLogList";
+import { AdminUserApiKeyList } from "@/components/AdminUserApiKeyList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,22 +14,40 @@ import { Shield } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Admin() {
   const { toast } = useToast();
+  const { user, isLoading: authLoading } = useAuth();
+  const [location, setLocation] = useLocation();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [activeTab, setActiveTab] = useState("providers");
-  // authToken removed as we use session cookies now
+  const [isDiscordAdmin, setIsDiscordAdmin] = useState(false);
+  
+  const getInitialTab = () => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const validTabs = ["providers", "users", "logs"];
+    return tab && validTabs.includes(tab) ? tab : "providers";
+  };
+  
+  const [activeTab, setActiveTab] = useState(getInitialTab);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (user && user.roles?.includes("admin")) {
+      setIsAuthenticated(true);
+      setIsDiscordAdmin(true);
+      return;
+    }
+
+    setIsDiscordAdmin(false);
     api.checkAuth()
       .then(() => setIsAuthenticated(true))
       .catch(() => setIsAuthenticated(false));
-  }, []);
+  }, [user]);
 
   const handleLogout = async () => {
     try {
@@ -68,6 +86,10 @@ export default function Admin() {
       setLoading(false);
     }
   };
+
+  if (authLoading) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return (
@@ -139,16 +161,21 @@ export default function Admin() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-semibold mb-2">Admin Dashboard</h1>
             <p className="text-muted-foreground text-sm sm:text-base">
-              Manage providers, user tokens, and system settings
+              Manage providers, users, and system settings
             </p>
           </div>
-          <Button variant="outline" onClick={handleLogout}>Logout</Button>
+          {!isDiscordAdmin && (
+            <Button variant="outline" onClick={handleLogout}>Logout</Button>
+          )}
         </div>
 
         <div className="space-y-6">
           <div className="flex space-x-1 rounded-xl bg-muted p-1">
             <button
-              onClick={() => setActiveTab("providers")}
+              onClick={() => {
+                setActiveTab("providers");
+                setLocation("/admin?tab=providers");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
                 activeTab === "providers"
@@ -160,28 +187,34 @@ export default function Admin() {
               Providers
             </button>
             <button
-              onClick={() => setActiveTab("tokens")}
+              onClick={() => {
+                setActiveTab("users");
+                setLocation("/admin?tab=users");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
-                activeTab === "tokens"
+                activeTab === "users"
                   ? "bg-background text-foreground shadow"
                   : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
               )}
-              data-testid="tab-tokens"
+              data-testid="tab-users"
             >
-              User Tokens
+              Users
             </button>
             <button
-              onClick={() => setActiveTab("provider-users")}
+              onClick={() => {
+                setActiveTab("logs");
+                setLocation("/admin?tab=logs");
+              }}
               className={cn(
                 "w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2",
-                activeTab === "provider-users"
+                activeTab === "logs"
                   ? "bg-background text-foreground shadow"
                   : "text-muted-foreground hover:bg-white/[0.12] hover:text-white"
               )}
-              data-testid="tab-provider-users"
+              data-testid="tab-logs"
             >
-              User Providers
+              Logs
             </button>
           </div>
 
@@ -201,34 +234,30 @@ export default function Admin() {
             </div>
           )}
 
-          {activeTab === "tokens" && (
+          {activeTab === "users" && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div>
-                <h2 className="text-xl font-semibold mb-4">Create New Token</h2>
-                <div className="max-w-2xl">
-                  <AdminUserTokenForm />
-                </div>
+                <h2 className="text-xl font-semibold mb-4">Discord Users</h2>
+                <AdminUserList />
               </div>
-
               <div>
-                <h2 className="text-xl font-semibold mb-4">Existing Tokens</h2>
-                <AdminUserTokenList />
+                <h2 className="text-xl font-semibold mb-4">User API Keys</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  View and manage per-user API keys, rate limits, and key rotation
+                </p>
+                <AdminUserApiKeyList />
               </div>
             </div>
           )}
 
-          {activeTab === "provider-users" && (
+          {activeTab === "logs" && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div>
-                <h2 className="text-xl font-semibold mb-4">Create Provider Account</h2>
-                <div className="max-w-2xl">
-                  <AdminProviderAccountForm />
-                </div>
-              </div>
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Existing Provider Accounts</h2>
-                <AdminProviderAccountList />
+                <h2 className="text-xl font-semibold mb-4">Request Logs</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  View all requests made from verified IP addresses
+                </p>
+                <AdminLogList />
               </div>
             </div>
           )}

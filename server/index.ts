@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
+import { initializeDiscordBot } from "./discord-bot";
 
 const app = express();
 app.use(express.json({ limit: '4mb' }));
@@ -55,6 +56,14 @@ app.use((req, res, next) => {
     }
   } catch (error) {
     console.error("Failed to seed initial admin:", error);
+  }
+
+  // Initialize Discord bot (non-blocking)
+  try {
+    await initializeDiscordBot();
+  } catch (error) {
+    console.error("Discord bot initialization failed:", error);
+    // Don't crash the server - bot is optional
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

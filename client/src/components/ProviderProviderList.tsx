@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Edit, Trash2, ChevronDown, ChevronRight, Key, Check, X } from "lucide-react";
+import { Edit, Trash2, ChevronDown, ChevronRight, Key, Check, X, Globe, Lock } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Edit2 } from "lucide-react";
 import { ProviderProviderForm } from "./ProviderProviderForm";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ProviderProviderListProps { }
 
@@ -162,9 +163,9 @@ export function ProviderProviderList({ }: ProviderProviderListProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-semibold text-lg" data-testid={`provider-name-${provider.id}`}>
                       {provider.name}
                     </h3>
@@ -174,11 +175,41 @@ export function ProviderProviderList({ }: ProviderProviderListProps) {
                     <Badge variant="outline">
                       {provider.keysCount} keys
                     </Badge>
+                    {provider.visibility === "private" ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge variant="secondary" className="gap-1">
+                              <Lock className="h-3 w-3" />
+                              Private
+                              {provider.allowed_roles && provider.allowed_roles.length > 0 && (
+                                <span className="text-[10px] opacity-70">({provider.allowed_roles.length} roles)</span>
+                              )}
+                            </Badge>
+                          </TooltipTrigger>
+                          {provider.allowed_roles && provider.allowed_roles.length > 0 && (
+                            <TooltipContent side="bottom" className="max-w-xs">
+                              <p className="font-semibold mb-1">Allowed Roles</p>
+                              <div className="flex flex-wrap gap-1">
+                                {provider.allowed_roles.map((role: string) => (
+                                  <span key={role} className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs">{role}</span>
+                                ))}
+                              </div>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Badge variant="secondary" className="gap-1">
+                        <Globe className="h-3 w-3" />
+                        Public
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground font-mono break-all">{provider.baseUrl}</p>
                 </div>
 
-                <div className="flex items-center gap-3 flex-shrink-0">
+                <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={provider.enabled}
@@ -189,22 +220,24 @@ export function ProviderProviderList({ }: ProviderProviderListProps) {
                       {provider.enabled ? "Enabled" : "Disabled"}
                     </span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setEditingProvider(provider)}
-                    data-testid={`button-edit-${provider.id}`}
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteProvider(provider.id)}
-                    data-testid={`button-delete-${provider.id}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setEditingProvider(provider)}
+                      data-testid={`button-edit-${provider.id}`}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteProvider(provider.id)}
+                      data-testid={`button-delete-${provider.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 </div>
               </div>
 

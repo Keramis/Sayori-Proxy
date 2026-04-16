@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Header } from "@/components/Header";
 import { StatCard } from "@/components/StatCard";
 import { ModelProviderCard } from "@/components/ModelProviderCard";
-import { UserTokenOverview } from "@/components/UserTokenOverview";
-import { Activity, TrendingUp, Zap, Clock, BarChart3 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Activity, TrendingUp, Zap, Clock, BarChart3, Key, ArrowRight, LogIn } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const REFRESH_INTERVAL = 3000;
 
@@ -37,6 +40,70 @@ function formatTokens(tokens: number): string {
 }
 
 import { SnowEffect } from "@/components/SnowEffect";
+
+function maskApiKey(key: string): string {
+  if (key.length <= 8) return key;
+  return `${key.substring(0, 8)}${'*'.repeat(key.length - 8)}`;
+}
+
+function PersonalApiKeySection() {
+  const { user, isAuthenticated, isLoading: authLoading, login } = useAuth();
+  const [, navigate] = useLocation();
+
+  const { data: apiKeyData, isLoading: keyLoading } = useQuery({
+    queryKey: ['/api/user/api-key'],
+    queryFn: api.getUserApiKey,
+    enabled: isAuthenticated,
+  });
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-4">
+        <p className="text-sm text-muted-foreground">Log in to view and manage your personal API key.</p>
+        <Button variant="outline" className="gap-2" onClick={() => login()}>
+          <LogIn className="h-4 w-4" />
+          Login with Discord
+        </Button>
+      </div>
+    );
+  }
+
+  if (keyLoading) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  const maskedKey = apiKeyData?.apiKey ? maskApiKey(apiKeyData.apiKey) : 'sk-••••••••••••••••';
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="shrink-0 h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+          <Key className="h-4 w-4 text-primary" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{user?.username || 'User'}</p>
+          <p className="font-mono text-sm truncate">{maskedKey}</p>
+        </div>
+      </div>
+      <Button variant="outline" className="gap-2 shrink-0" onClick={() => navigate('/api-key')}>
+        Manage Key
+        <ArrowRight className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({
@@ -84,7 +151,6 @@ export default function Dashboard() {
     let wsConnected = false;
     let isUnmounted = false;
 
-    // Try WebSocket first
     const tryWebSocket = () => {
       try {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -108,8 +174,6 @@ export default function Dashboard() {
           console.log("WebSocket closed");
           const wasConnected = wsConnected;
           wsConnected = false;
-          // If WebSocket closes and wasn't connected, start polling
-          // but only if we're not unmounting
           if (!wasConnected && !isUnmounted) {
             console.log("Falling back to HTTP polling");
             startPolling();
@@ -121,9 +185,8 @@ export default function Dashboard() {
       }
     };
 
-    // HTTP polling fallback
     const startPolling = () => {
-      if (pollInterval || isUnmounted) return; // Already polling or unmounted
+      if (pollInterval || isUnmounted) return;
 
       const fetchStats = async () => {
         try {
@@ -135,14 +198,10 @@ export default function Dashboard() {
         }
       };
 
-      // Fetch immediately
       fetchStats();
-
-      // Then poll every 3 seconds
       pollInterval = setInterval(fetchStats, REFRESH_INTERVAL);
     };
 
-    // Try WebSocket first, with fallback to polling after 2 seconds if no connection
     tryWebSocket();
     const fallbackTimer = setTimeout(() => {
       if (!wsConnected && !isUnmounted) {
@@ -163,7 +222,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Assign colors to providers
   const providerColors = [
     "bg-emerald-600",
     "bg-purple-600",
@@ -176,7 +234,6 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background relative">
       <SnowEffect />
-      {/* Subtle background image */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
@@ -191,20 +248,13 @@ export default function Dashboard() {
       <Header />
 
       <main className="container mx-auto px-6 py-8">
-        {/* Hero Section */}
         <div className="text-center mb-12">
-          <h1 className="font-script text-6xl mb-4 christmas-gradient-text drop-shadow-md pb-2">Sayori Proxy</h1>
+          <h1 className="font-script text-6xl mb-4 christmas-gradient-text pb-2" style={{ textShadow: '0 4px 3px rgba(0, 0, 0, 0.07), 0 2px 2px rgba(0, 0, 0, 0.06)' }}>Sayori Proxy</h1>
           <p className="text-muted-foreground text-lg mb-6">
             Router that will never leave you hanging.
           </p>
         </div>
 
-        {/* User Token Overview */}
-        <div className="mb-12">
-          <UserTokenOverview />
-        </div>
-
-        {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-12">
           <StatCard
             label="Total Tokens"
@@ -233,7 +283,24 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Available Models Section */}
+        {/* Personal API Key Panel */}
+        <div className="mb-12">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                Personal API Key
+              </CardTitle>
+              <CardDescription>
+                Your unique key for authenticating API requests.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PersonalApiKeySection />
+            </CardContent>
+          </Card>
+        </div>
+
         {providers.length > 0 && (
           <div className="mb-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -286,7 +353,6 @@ export default function Dashboard() {
         )}
       </main>
 
-      {/* Usage Guide Section */}
       <div className="container mx-auto px-6 mb-8">
         <h2 className="text-2xl font-semibold mb-6 text-primary">Model Usage Guide</h2>
         <div className="bg-muted/30 rounded-lg p-6 space-y-4">
@@ -317,7 +383,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="border-t mt-12 py-6">
         <div className="container mx-auto px-6 text-center text-sm text-muted-foreground">
           <p>Sayori Proxy - Will you gently open the door?</p>
