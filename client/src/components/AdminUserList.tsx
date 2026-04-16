@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Ban, ShieldCheck, Wifi, WifiOff, Shield, Briefcase, UserCog, Search } from "lucide-react";
+import { Ban, ShieldCheck, Wifi, WifiOff, Shield, Briefcase, UserCog, Search, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,6 +54,7 @@ export function AdminUserList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [banDialogOpen, setBanDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [rolesDialogOpen, setRolesDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<DiscordUser | null>(null);
   const [banReason, setBanReason] = useState("");
@@ -106,6 +107,17 @@ export function AdminUserList() {
     setBanDialogOpen(true);
   };
 
+  const handleDeleteClick = (user: DiscordUser) => {
+    setSelectedUser(user);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (selectedUser) {
+      deleteMutation.mutate(selectedUser.id);
+    }
+  };
+
   const handleBanConfirm = () => {
     if (selectedUser) {
       banMutation.mutate({ userId: selectedUser.id, reason: banReason || undefined });
@@ -125,6 +137,26 @@ export function AdminUserList() {
       toast({
         title: "Error",
         description: error.message || "Failed to unban user",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (userId: string) => api.deleteUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      setDeleteDialogOpen(false);
+      setSelectedUser(null);
+      toast({
+        title: "User Deleted",
+        description: "User data has been anonymized per LGPD/GDPR right to erasure.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete user",
         variant: "destructive",
       });
     },
@@ -353,6 +385,17 @@ export function AdminUserList() {
                       Ban
                     </Button>
                   )}
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDeleteClick(user)}
+                    disabled={deleteMutation.isPending || (user.roles || ["user"]).includes("admin")}
+                    title={user.roles?.includes("admin") ? "Cannot delete admin accounts" : "Delete user and anonymize logs (LGPD/GDPR)"}
+                    className="align-middle"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </Button>
                 </TableCell>
               </TableRow>
             ))
@@ -401,6 +444,48 @@ export function AdminUserList() {
               disabled={banMutation.isPending}
             >
               {banMutation.isPending ? "Banning..." : "Ban User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete User</DialogTitle>
+            <DialogDescription>
+              You are about to permanently delete {selectedUser?.globalName || selectedUser?.username}.
+              This action cannot be undone. The user's request log entries will have their IP addresses
+              irreversibly hashed (LGPD/GDPR right to erasure), and the user link will be severed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              All of the following will be anonymized or removed:
+            </p>
+            <ul className="list-disc list-inside text-sm text-muted-foreground mt-2 space-y-1">
+              <li>User account deleted from discord_users</li>
+              <li>User API keys revoked</li>
+              <li>IP addresses replaced with one-way irreversible hashes in request logs</li>
+              <li>User reference removed from all logs</li>
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setSelectedUser(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete User"}
             </Button>
           </DialogFooter>
         </DialogContent>

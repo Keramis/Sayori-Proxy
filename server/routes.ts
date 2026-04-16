@@ -1551,6 +1551,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
+  // Delete user / scrub personal data (LGPD/GDPR right to erasure)
+  app.delete(
+    "/api/admin/users/:id",
+    await requireRole("admin"),
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.params.id;
+        const user = await storage.getDiscordUser(userId);
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        // Prevent deleting admin accounts
+        const userRoles = user.roles || ["user"];
+        if (userRoles.includes("admin")) {
+          return res.status(403).json({ error: "Cannot delete admin accounts" });
+        }
+        // Anonymize IP addresses in request_logs, then delete the discord_users row
+        await storage.scrubUserData(userId);
+        // Actually delete the user row (cascade deletes user_api_keys, usage_records, etc.)
+        await storage.deleteDiscordUser(userId);
+        res.json({ success: true });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    },
+  );
+
   // Update user roles - Super Admin can manage all roles, Discord Admins can only manage provider role
   app.post(
     "/api/admin/users/:id/roles",
